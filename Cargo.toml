@@ -9,3 +9,6 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [dependencies]
+
+[dev-dependencies]
+insta = "1.3.0"
