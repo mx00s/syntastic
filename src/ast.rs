@@ -1,15 +1,14 @@
-use std::convert::TryFrom;
 use std::fmt;
 
 #[derive(Debug)]
 pub enum Error<T, V, O, S> {
     InvalidArgumentCount {
-        operator: Operator<O, S>,
-        arguments: Vec<Ast<T, V, O, S>>,
+        op: Operator<O, S>,
+        args: Vec<Ast<T, V, O, S>>,
     },
     InvalidArgumentSort {
-        operator: Operator<O, S>,
-        arguments: Vec<Ast<T, V, O, S>>,
+        op: Operator<O, S>,
+        args: Vec<Ast<T, V, O, S>>,
     },
 }
 
@@ -33,10 +32,16 @@ pub struct Operator<O, S> {
 }
 
 #[derive(Debug)]
+pub struct Operation<T, V, O, S> {
+    op: Operator<O, S>,
+    args: Vec<Ast<T, V, O, S>>,
+}
+
+#[derive(Debug)]
 pub enum Ast<T, V, O, S> {
     Val(Value<T, S>),
     Var(Variable<V, S>),
-    Op(Operator<O, S>, Vec<Self>),
+    Op(Operation<T, V, O, S>),
 }
 
 impl<T, V, O, S> Ast<T, V, O, S> {
@@ -44,7 +49,7 @@ impl<T, V, O, S> Ast<T, V, O, S> {
         match self {
             Self::Val(x) => &x.sort,
             Self::Var(v) => &v.sort,
-            Self::Op(op, _) => &op.sort,
+            Self::Op(o) => &o.op.sort,
         }
     }
 }
@@ -67,6 +72,25 @@ impl<O, S> Operator<O, S> {
     }
 }
 
+impl<T, V, O, S> Operation<T, V, O, S> {
+    pub fn new(op: Operator<O, S>, args: Vec<Ast<T, V, O, S>>) -> Result<Self, Error<T, V, O, S>>
+    where
+        S: PartialEq,
+    {
+        if args.len() != op.arity.len() {
+            Err(Error::InvalidArgumentCount { op, args })
+        } else if args
+            .iter()
+            .zip(op.arity.iter())
+            .any(|(arg, sort)| arg.sort() != sort)
+        {
+            Err(Error::InvalidArgumentSort { op, args })
+        } else {
+            Ok(Self { op, args })
+        }
+    }
+}
+
 impl<T, V, O, S> From<Variable<V, S>> for Ast<T, V, O, S> {
     fn from(var: Variable<V, S>) -> Self {
         Self::Var(var)
@@ -79,32 +103,9 @@ impl<T, V, O, S> From<Value<T, S>> for Ast<T, V, O, S> {
     }
 }
 
-impl<T, V, O, S> TryFrom<(Operator<O, S>, Vec<Ast<T, V, O, S>>)> for Ast<T, V, O, S>
-where
-    S: PartialEq,
-{
-    type Error = Error<T, V, O, S>;
-
-    fn try_from(
-        (operator, arguments): (Operator<O, S>, Vec<Ast<T, V, O, S>>),
-    ) -> Result<Self, Self::Error> {
-        if arguments.len() != operator.arity.len() {
-            Err(Error::InvalidArgumentCount {
-                operator,
-                arguments,
-            })
-        } else if arguments
-            .iter()
-            .zip(operator.arity.iter())
-            .any(|(arg, sort)| arg.sort() != sort)
-        {
-            Err(Error::InvalidArgumentSort {
-                operator,
-                arguments,
-            })
-        } else {
-            Ok(Ast::Op(operator, arguments))
-        }
+impl<T, V, O, S> From<Operation<T, V, O, S>> for Ast<T, V, O, S> {
+    fn from(o: Operation<T, V, O, S>) -> Self {
+        Self::Op(o)
     }
 }
 
@@ -119,13 +120,7 @@ where
         match self {
             Self::Val(x) => write!(f, "{}", x),
             Self::Var(v) => write!(f, "{}", v),
-            Self::Op(op, args) => {
-                write!(f, "({}", op)?;
-                for a in args.iter() {
-                    write!(f, " {}", a)?;
-                }
-                write!(f, ")")
-            }
+            Self::Op(o) => write!(f, "{}", o),
         }
     }
 }
@@ -164,11 +159,26 @@ where
     }
 }
 
+impl<T, V, O, S> fmt::Display for Operation<T, V, O, S>
+where
+    T: fmt::Display,
+    V: fmt::Display,
+    O: fmt::Display,
+    S: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}", self.op)?;
+        for a in self.args.iter() {
+            write!(f, " {}", a)?;
+        }
+        write!(f, ")")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use insta::{assert_debug_snapshot, assert_display_snapshot};
-    use std::convert::TryInto;
 
     #[derive(Debug)]
     enum Var {
@@ -213,23 +223,23 @@ mod tests {
 
     fn example_ast() -> Ast<usize, Var, Op, Sort> {
         // 2 + (3 * x)
-        (
+        Operation::new(
             Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
             vec![
                 Value::new(2, Sort::Num).into(),
-                (
+                Operation::new(
                     Operator::new(Op::Times, Sort::Num, vec![Sort::Num, Sort::Num]),
                     vec![
                         Value::new(3, Sort::Num).into(),
                         Variable::new(Var::X, Sort::Num).into(),
                     ],
                 )
-                    .try_into()
-                    .unwrap(),
+                .unwrap()
+                .into(),
             ],
         )
-            .try_into()
-            .unwrap()
+        .unwrap()
+        .into()
     }
 
     #[test]
