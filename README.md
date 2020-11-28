@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/syntastic.svg)](https://crates.io/crates/syntastic)
 [![Docs.rs](https://docs.rs/syntastic/badge.svg)](https://docs.rs/syntastic)
 [![CI](https://github.com/mx00s/syntastic/workflows/Continuous%20Integration/badge.svg)](https://github.com/mx00s/syntastic/actions)
-[![Coverage Status](https://coveralls.io/repos/github/mx00s/syntastic/badge.svg?branch=master)](https://coveralls.io/github/mx00s/syntastic?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/mx00s/syntastic/badge.svg?branch=main)](https://coveralls.io/github/mx00s/syntastic?branch=main)
 
 ## Installation
 
