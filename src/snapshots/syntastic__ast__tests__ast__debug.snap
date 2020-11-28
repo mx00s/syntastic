@@ -2,49 +2,26 @@
 source: src/ast.rs
 expression: example_ast()
 ---
-Op(
-    Operation {
-        operator: Operator {
-            op: Plus,
-            sort: Num,
-            arity: [
-                Num,
-                Num,
-            ],
-        },
-        args: [
-            Val(
-                Value {
-                    val: 2,
-                    sort: Num,
-                },
+Ast(
+    Operation(
+        Plus,
+        [
+            Value(
+                2,
+                PhantomData,
             ),
-            Op(
-                Operation {
-                    operator: Operator {
-                        op: Times,
-                        sort: Num,
-                        arity: [
-                            Num,
-                            Num,
-                        ],
-                    },
-                    args: [
-                        Val(
-                            Value {
-                                val: 3,
-                                sort: Num,
-                            },
-                        ),
-                        Var(
-                            Variable {
-                                var: X,
-                                sort: Num,
-                            },
-                        ),
-                    ],
-                },
+            Operation(
+                Times,
+                [
+                    Value(
+                        3,
+                        PhantomData,
+                    ),
+                    Variable(
+                        X,
+                    ),
+                ],
             ),
         ],
-    },
+    ),
 )

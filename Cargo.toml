@@ -1,6 +1,6 @@
 [package]
 name = "syntastic"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["Sage Mitchell <dev@mx00s.com>"]
 edition = "2018"
 description = "Generic abstract syntax representation"

@@ -1,66 +1,28 @@
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, fmt};
+use std::{cmp::Ordering, fmt, marker::PhantomData};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Value<T, S> {
-    pub val: T,
-    pub sort: S,
+pub trait Value<S> {
+    fn sort(&self) -> &S;
+}
+
+pub trait Variable<S> {
+    fn sort(&self) -> &S;
+}
+
+pub trait Operator<S> {
+    fn sort(&self) -> &S;
+    fn arity(&self) -> Vec<S>;
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Variable<V, S> {
-    pub var: V,
-    pub sort: S,
+enum Node<T, V, O, S> {
+    Value(T, #[serde(skip)] PhantomData<S>),
+    Variable(V),
+    Operation(O, Vec<Node<T, V, O, S>>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Operator<O, S> {
-    pub op: O,
-    pub sort: S,
-    pub arity: Vec<S>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Operation<T, V, O, S> {
-    operator: Operator<O, S>,
-    args: Vec<Ast<T, V, O, S>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Ast<T, V, O, S> {
-    Val(Value<T, S>),
-    Var(Variable<V, S>),
-    Op(Operation<T, V, O, S>),
-}
-
-impl<T, V, O, S> Ast<T, V, O, S> {
-    fn sort(&self) -> &S {
-        match self {
-            Self::Val(x) => &x.sort,
-            Self::Var(v) => &v.sort,
-            Self::Op(o) => &o.operator.sort,
-        }
-    }
-}
-
-impl<T, S> Value<T, S> {
-    pub fn new(val: T, sort: S) -> Self {
-        Self { val, sort }
-    }
-}
-
-impl<V, S> Variable<V, S> {
-    pub fn new(var: V, sort: S) -> Self {
-        Self { var, sort }
-    }
-}
-
-impl<O, S> Operator<O, S> {
-    pub fn new(op: O, sort: S, arity: Vec<S>) -> Self {
-        Self { op, sort, arity }
-    }
-}
+pub struct Ast<T, V, O, S>(Node<T, V, O, S>);
 
 #[derive(Debug, PartialEq)]
 pub struct ArgumentSortMismatch<T, V, O, S> {
@@ -76,27 +38,37 @@ pub enum InvalidOperation<T, V, O, S> {
     SortMismatches(Vec<ArgumentSortMismatch<T, V, O, S>>),
 }
 
-impl<T, V, O, S> Operation<T, V, O, S> {
-    pub fn new(
-        operator: Operator<O, S>,
-        args: Vec<Ast<T, V, O, S>>,
-    ) -> Result<Self, InvalidOperation<T, V, O, S>>
+impl<T, V, O, S> Node<T, V, O, S> {
+    fn sort(&self) -> &S
     where
-        S: PartialEq + Clone,
-        Ast<T, V, O, S>: Clone,
+        T: Value<S>,
+        V: Variable<S>,
+        O: Operator<S>,
     {
-        match args.len().cmp(&operator.arity.len()) {
-            Ordering::Greater => Err(InvalidOperation::TooManyArguments(
-                args.len() - operator.arity.len(),
-            )),
-            Ordering::Less => Err(InvalidOperation::TooFewArguments(
-                operator.arity.len() - args.len(),
-            )),
+        match self {
+            Self::Value(x, _phantom) => &x.sort(),
+            Self::Variable(v) => &v.sort(),
+            Self::Operation(o, _) => &o.sort(),
+        }
+    }
+
+    fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<T, V, O, S>>
+    where
+        T: Clone + Value<S>,
+        V: Clone + Variable<S>,
+        O: Clone + Operator<S>,
+        S: Clone + PartialEq,
+    {
+        let arity = operator.arity();
+
+        match args.len().cmp(&arity.len()) {
+            Ordering::Greater => Err(InvalidOperation::TooManyArguments(args.len() - arity.len())),
+            Ordering::Less => Err(InvalidOperation::TooFewArguments(arity.len() - args.len())),
             Ordering::Equal => {
-                let mismatched_sorts: Vec<_> = args
+                let bad_args: Vec<_> = args
                     .iter()
                     .enumerate()
-                    .zip(operator.arity.iter())
+                    .zip(arity.iter())
                     .filter_map(|((index, arg), sort)| {
                         if arg.sort() == sort {
                             None
@@ -104,102 +76,95 @@ impl<T, V, O, S> Operation<T, V, O, S> {
                             Some(ArgumentSortMismatch {
                                 index,
                                 parameter: (*sort).clone(),
-                                argument: (*arg).clone(),
+                                argument: Ast((*arg).clone()),
                             })
                         }
                     })
                     .collect();
-                if mismatched_sorts.is_empty() {
-                    Ok(Self { operator, args })
+                if bad_args.is_empty() {
+                    Ok(Self::Operation(operator, args))
                 } else {
-                    Err(InvalidOperation::SortMismatches(mismatched_sorts))
+                    Err(InvalidOperation::SortMismatches(bad_args))
                 }
             }
         }
     }
 }
 
-impl<T, V, O, S> From<Variable<V, S>> for Ast<T, V, O, S> {
-    fn from(var: Variable<V, S>) -> Self {
-        Self::Var(var)
+impl<T, V, O, S> Ast<T, V, O, S> {
+    pub fn sort(&self) -> &S
+    where
+        T: Value<S>,
+        V: Variable<S>,
+        O: Operator<S>,
+    {
+        self.0.sort()
+    }
+
+    pub fn from_val(x: T) -> Self
+    where
+        T: Value<S>,
+    {
+        Self(Node::Value(x, PhantomData))
+    }
+
+    pub fn from_var(v: V) -> Self
+    where
+        V: Variable<S>,
+    {
+        Self(Node::Variable(v))
+    }
+
+    pub fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<T, V, O, S>>
+    where
+        T: Clone + Value<S>,
+        V: Clone + Variable<S>,
+        O: Clone + Operator<S>,
+        S: Clone + PartialEq,
+    {
+        Ok(Self(Node::from_op(
+            operator,
+            args.iter().cloned().map(|a| a.0).collect(),
+        )?))
     }
 }
 
-impl<T, V, O, S> From<Value<T, S>> for Ast<T, V, O, S> {
-    fn from(x: Value<T, S>) -> Self {
-        Self::Val(x)
-    }
-}
+impl<T, V, O, S> fmt::Display for Node<T, V, O, S>
+where
+    T: fmt::Display + Value<S>,
+    V: fmt::Display + Variable<S>,
+    O: fmt::Display + Operator<S>,
+    S: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Value(x, _phantom) => write!(f, "[{} : {}]", x, x.sort()),
+            Self::Variable(v) => write!(f, "[{} : {}]", v, v.sort()),
+            Self::Operation(o, args) => {
+                write!(f, "([{} : ", &o)?;
+                for p in o.arity() {
+                    write!(f, "{} -> ", p)?;
+                }
+                write!(f, "{}]", self.sort())?;
 
-impl<T, V, O, S> From<Operation<T, V, O, S>> for Ast<T, V, O, S> {
-    fn from(o: Operation<T, V, O, S>) -> Self {
-        Self::Op(o)
+                for a in args {
+                    write!(f, " {}", a)?;
+                }
+                write!(f, ")")
+            }
+        }
     }
 }
 
 impl<T, V, O, S> fmt::Display for Ast<T, V, O, S>
 where
-    T: fmt::Display,
-    V: fmt::Display,
-    O: fmt::Display,
+    T: fmt::Display + Value<S>,
+    V: fmt::Display + Variable<S>,
+    O: fmt::Display + Operator<S>,
     S: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Val(x) => write!(f, "{}", x),
-            Self::Var(v) => write!(f, "{}", v),
-            Self::Op(o) => write!(f, "{}", o),
-        }
-    }
-}
-
-impl<T, S> fmt::Display for Value<T, S>
-where
-    T: fmt::Display,
-    S: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{} : {}]", self.val, self.sort)
-    }
-}
-
-impl<V, S> fmt::Display for Variable<V, S>
-where
-    V: fmt::Display,
-    S: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{} : {}]", self.var, self.sort)
-    }
-}
-
-impl<O, S> fmt::Display for Operator<O, S>
-where
-    O: fmt::Display,
-    S: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{} : ", self.op)?;
-        for p in &self.arity {
-            write!(f, "{} -> ", p)?;
-        }
-        write!(f, "{}]", self.sort)
-    }
-}
-
-impl<T, V, O, S> fmt::Display for Operation<T, V, O, S>
-where
-    T: fmt::Display,
-    V: fmt::Display,
-    O: fmt::Display,
-    S: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}", self.operator)?;
-        for a in self.args.iter() {
-            write!(f, " {}", a)?;
-        }
-        write!(f, ")")
+        write!(f, "{}", self.0)
     }
 }
 
@@ -213,9 +178,10 @@ mod tests {
         assert_debug_snapshot, assert_display_snapshot, assert_json_snapshot, assert_ron_snapshot,
     };
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum Var {
         X,
+        Y,
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -230,11 +196,40 @@ mod tests {
         Other,
     }
 
+    impl Value<Sort> for usize {
+        fn sort(&self) -> &Sort {
+            &Sort::Num
+        }
+    }
+
+    impl Variable<Sort> for Var {
+        fn sort(&self) -> &Sort {
+            match self {
+                Var::X => &Sort::Num,
+                Var::Y => &Sort::Other,
+            }
+        }
+    }
+
+    impl Operator<Sort> for Op {
+        fn sort(&self) -> &Sort {
+            match self {
+                Op::Plus => &Sort::Num,
+                Op::Times => &Sort::Num,
+            }
+        }
+
+        fn arity(&self) -> Vec<Sort> {
+            match self {
+                Op::Plus => vec![Sort::Num, Sort::Num],
+                Op::Times => vec![Sort::Num, Sort::Num],
+            }
+        }
+    }
+
     impl fmt::Display for Var {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Var::X => write!(f, "x"),
-            }
+            write!(f, "{:?}", self)
         }
     }
 
@@ -256,25 +251,16 @@ mod tests {
         }
     }
 
+    /// 2 + (3 * x)
     fn example_ast() -> Ast<usize, Var, Op, Sort> {
-        // 2 + (3 * x)
-        Operation::new(
-            Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
+        Ast::from_op(
+            Op::Plus,
             vec![
-                Value::new(2, Sort::Num).into(),
-                Operation::new(
-                    Operator::new(Op::Times, Sort::Num, vec![Sort::Num, Sort::Num]),
-                    vec![
-                        Value::new(3, Sort::Num).into(),
-                        Variable::new(Var::X, Sort::Num).into(),
-                    ],
-                )
-                .unwrap()
-                .into(),
+                Ast::from_val(2),
+                Ast::from_op(Op::Times, vec![Ast::from_val(3), Ast::from_var(Var::X)]).unwrap(),
             ],
         )
         .unwrap()
-        .into()
     }
 
     #[test]
@@ -299,47 +285,34 @@ mod tests {
 
     #[test]
     fn invalid_ast_operation__too_many_args() {
-        let operation = Operation::new(
-            Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
-            vec![
-                Value::new(1, Sort::Num).into(),
-                Value::new(2, Sort::Num).into(),
-                Variable::new(Var::X, Sort::Num).into(),
-            ],
+        let operation = Ast::from_op(
+            Op::Plus,
+            vec![Ast::from_val(1), Ast::from_val(2), Ast::from_var(Var::X)],
         )
         .unwrap_err();
 
-        assert_eq!(operation, InvalidOperation::TooManyArguments(1),);
+        assert_eq!(operation, InvalidOperation::TooManyArguments(1));
     }
 
     #[test]
     fn invalid_ast_operation__too_few_args() {
-        let operation = Operation::<usize, _, _, _>::new(
-            Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
-            vec![Variable::new(Var::X, Sort::Num).into()],
-        )
-        .unwrap_err();
+        let operation: InvalidOperation<usize, _, _, _> =
+            Ast::from_op(Op::Plus, vec![Ast::from_var(Var::X)]).unwrap_err();
 
-        assert_eq!(operation, InvalidOperation::TooFewArguments(1),);
+        assert_eq!(operation, InvalidOperation::TooFewArguments(1));
     }
 
     #[test]
     fn invalid_ast_operation__argument_type() {
-        let operation = Operation::new(
-            Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
-            vec![
-                Value::new(1, Sort::Num).into(),
-                Variable::new(Var::X, Sort::Other).into(),
-            ],
-        )
-        .unwrap_err();
+        let operation =
+            Ast::from_op(Op::Plus, vec![Ast::from_val(1), Ast::from_var(Var::Y)]).unwrap_err();
 
         assert_eq!(
             operation,
             InvalidOperation::SortMismatches(vec![ArgumentSortMismatch {
                 index: 1,
                 parameter: Sort::Num,
-                argument: Variable::new(Var::X, Sort::Other).into(),
+                argument: Ast::from_var(Var::Y),
             }]),
         );
     }
