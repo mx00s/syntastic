@@ -1,43 +1,32 @@
+use std::cmp::Ordering;
 use std::fmt;
 
-#[derive(Debug)]
-pub enum Error<T, V, O, S> {
-    InvalidArgumentCount {
-        op: Operator<O, S>,
-        args: Vec<Ast<T, V, O, S>>,
-    },
-    InvalidArgumentSort {
-        op: Operator<O, S>,
-        args: Vec<Ast<T, V, O, S>>,
-    },
-}
-
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Value<T, S> {
     pub val: T,
     pub sort: S,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Variable<V, S> {
     pub var: V,
     pub sort: S,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Operator<O, S> {
     pub op: O,
     pub sort: S,
     pub arity: Vec<S>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Operation<T, V, O, S> {
     op: Operator<O, S>,
     args: Vec<Ast<T, V, O, S>>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Ast<T, V, O, S> {
     Val(Value<T, S>),
     Var(Variable<V, S>),
@@ -72,21 +61,59 @@ impl<O, S> Operator<O, S> {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct ArgumentSortMismatch<T, V, O, S> {
+    index: usize,
+    parameter: S,
+    argument: Ast<T, V, O, S>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum InvalidOperation<T, V, O, S> {
+    TooFewArguments(usize),
+    TooManyArguments(usize),
+    SortMismatches(Vec<ArgumentSortMismatch<T, V, O, S>>),
+}
+
 impl<T, V, O, S> Operation<T, V, O, S> {
-    pub fn new(op: Operator<O, S>, args: Vec<Ast<T, V, O, S>>) -> Result<Self, Error<T, V, O, S>>
+    pub fn new(
+        op: Operator<O, S>,
+        args: Vec<Ast<T, V, O, S>>,
+    ) -> Result<Self, InvalidOperation<T, V, O, S>>
     where
-        S: PartialEq,
+        S: PartialEq + Clone,
+        Ast<T, V, O, S>: Clone,
     {
-        if args.len() != op.arity.len() {
-            Err(Error::InvalidArgumentCount { op, args })
-        } else if args
-            .iter()
-            .zip(op.arity.iter())
-            .any(|(arg, sort)| arg.sort() != sort)
-        {
-            Err(Error::InvalidArgumentSort { op, args })
-        } else {
-            Ok(Self { op, args })
+        match args.len().cmp(&op.arity.len()) {
+            Ordering::Greater => Err(InvalidOperation::TooManyArguments(
+                args.len() - op.arity.len(),
+            )),
+            Ordering::Less => Err(InvalidOperation::TooFewArguments(
+                op.arity.len() - args.len(),
+            )),
+            Ordering::Equal => {
+                let mismatched_sorts: Vec<_> = args
+                    .iter()
+                    .enumerate()
+                    .zip(op.arity.iter())
+                    .filter_map(|((index, arg), sort)| {
+                        if arg.sort() == sort {
+                            None
+                        } else {
+                            Some(ArgumentSortMismatch {
+                                index,
+                                parameter: (*sort).clone(),
+                                argument: (*arg).clone(),
+                            })
+                        }
+                    })
+                    .collect();
+                if mismatched_sorts.is_empty() {
+                    Ok(Self { op, args })
+                } else {
+                    Err(InvalidOperation::SortMismatches(mismatched_sorts))
+                }
+            }
         }
     }
 }
@@ -176,24 +203,26 @@ where
 }
 
 #[cfg(test)]
+#[allow(non_snake_case)]
 mod tests {
     use super::*;
     use insta::{assert_debug_snapshot, assert_display_snapshot};
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug, PartialEq)]
     enum Var {
         X,
     }
 
-    #[derive(Debug)]
+    #[derive(Clone, Debug, PartialEq)]
     enum Op {
         Plus,
         Times,
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq)]
     enum Sort {
         Num,
+        Other,
     }
 
     impl fmt::Display for Var {
@@ -217,6 +246,7 @@ mod tests {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 Sort::Num => write!(f, "ℕ"),
+                Sort::Other => write!(f, "other"),
             }
         }
     }
@@ -243,13 +273,60 @@ mod tests {
     }
 
     #[test]
-    fn ast_debug() {
+    fn ast__debug() {
         assert_debug_snapshot!(example_ast());
     }
 
     #[test]
-    fn ast_display() {
+    fn ast__display() {
         assert_display_snapshot!(example_ast());
+    }
+
+    #[test]
+    fn invalid_ast_operation__too_many_args() {
+        let operation = Operation::new(
+            Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
+            vec![
+                Value::new(1, Sort::Num).into(),
+                Value::new(2, Sort::Num).into(),
+                Variable::new(Var::X, Sort::Num).into(),
+            ],
+        )
+        .unwrap_err();
+
+        assert_eq!(operation, InvalidOperation::TooManyArguments(1),);
+    }
+
+    #[test]
+    fn invalid_ast_operation__too_few_args() {
+        let operation = Operation::<usize, _, _, _>::new(
+            Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
+            vec![Variable::new(Var::X, Sort::Num).into()],
+        )
+        .unwrap_err();
+
+        assert_eq!(operation, InvalidOperation::TooFewArguments(1),);
+    }
+
+    #[test]
+    fn invalid_ast_operation__argument_type() {
+        let operation = Operation::new(
+            Operator::new(Op::Plus, Sort::Num, vec![Sort::Num, Sort::Num]),
+            vec![
+                Value::new(1, Sort::Num).into(),
+                Variable::new(Var::X, Sort::Other).into(),
+            ],
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            operation,
+            InvalidOperation::SortMismatches(vec![ArgumentSortMismatch {
+                index: 1,
+                parameter: Sort::Num,
+                argument: Variable::new(Var::X, Sort::Other).into(),
+            }]),
+        );
     }
 
     // TODO: substitution (p. 5)
