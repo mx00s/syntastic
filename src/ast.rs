@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, fmt, marker::PhantomData};
+use std::{cmp::Ordering, marker::PhantomData};
+
+#[cfg(test)]
+use std::fmt::{self, Write};
 
 pub trait Value<S> {
     fn sort(&self) -> &S;
@@ -89,6 +92,35 @@ impl<T, V, O, S> Node<T, V, O, S> {
             }
         }
     }
+
+    #[cfg(test)]
+    fn render_sexp(&self) -> String
+    where
+        T: fmt::Display + Value<S>,
+        V: fmt::Display + Variable<S>,
+        O: fmt::Display + Operator<S>,
+        S: fmt::Display,
+    {
+        let mut buf = String::new();
+        let write = |b: &mut String, s: &str| b.write_str(s).unwrap();
+        match self {
+            Node::Value(x, _phantom) => write(&mut buf, &format!("[{} : {}]", x, x.sort())),
+            Node::Variable(v) => write(&mut buf, &format!("[{} : {}]", v, v.sort())),
+            Node::Operation(o, args) => {
+                write(&mut buf, &format!("([{} : ", &o));
+                for p in o.arity() {
+                    write(&mut buf, &format!("{} -> ", p));
+                }
+                write(&mut buf, &format!("{}]", self.sort()));
+
+                for a in args {
+                    write(&mut buf, &format!(" {}", a.render_sexp()));
+                }
+                write(&mut buf, ")");
+            }
+        }
+        buf
+    }
 }
 
 impl<T, V, O, S> Ast<T, V, O, S> {
@@ -127,44 +159,16 @@ impl<T, V, O, S> Ast<T, V, O, S> {
             args.iter().cloned().map(|a| a.0).collect(),
         )?))
     }
-}
 
-impl<T, V, O, S> fmt::Display for Node<T, V, O, S>
-where
-    T: fmt::Display + Value<S>,
-    V: fmt::Display + Variable<S>,
-    O: fmt::Display + Operator<S>,
-    S: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Value(x, _phantom) => write!(f, "[{} : {}]", x, x.sort()),
-            Self::Variable(v) => write!(f, "[{} : {}]", v, v.sort()),
-            Self::Operation(o, args) => {
-                write!(f, "([{} : ", &o)?;
-                for p in o.arity() {
-                    write!(f, "{} -> ", p)?;
-                }
-                write!(f, "{}]", self.sort())?;
-
-                for a in args {
-                    write!(f, " {}", a)?;
-                }
-                write!(f, ")")
-            }
-        }
-    }
-}
-
-impl<T, V, O, S> fmt::Display for Ast<T, V, O, S>
-where
-    T: fmt::Display + Value<S>,
-    V: fmt::Display + Variable<S>,
-    O: fmt::Display + Operator<S>,
-    S: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+    #[cfg(test)]
+    fn render_sexp(&self) -> String
+    where
+        T: fmt::Display + Value<S>,
+        V: fmt::Display + Variable<S>,
+        O: fmt::Display + Operator<S>,
+        S: fmt::Display,
+    {
+        self.0.render_sexp()
     }
 }
 
@@ -175,7 +179,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use insta::{
-        assert_debug_snapshot, assert_display_snapshot, assert_json_snapshot, assert_ron_snapshot,
+        assert_debug_snapshot, assert_json_snapshot, assert_ron_snapshot, assert_snapshot,
     };
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,8 +273,8 @@ mod tests {
     }
 
     #[test]
-    fn ast__display() {
-        assert_display_snapshot!(example_ast());
+    fn ast__sexp() {
+        assert_snapshot!(example_ast().render_sexp());
     }
 
     #[test]
@@ -316,6 +320,8 @@ mod tests {
             }]),
         );
     }
+
+    // TODO: roundtrip serialization/deserialization proptest
 
     // TODO: substitution (p. 5)
 
