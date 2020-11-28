@@ -4,7 +4,7 @@ expression: example_ast()
 ---
 Op(
     Operation {
-        op: Operator {
+        operator: Operator {
             op: Plus,
             sort: Num,
             arity: [
@@ -21,7 +21,7 @@ Op(
             ),
             Op(
                 Operation {
-                    op: Operator {
+                    operator: Operator {
                         op: Times,
                         sort: Num,
                         arity: [

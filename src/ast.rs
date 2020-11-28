@@ -1,32 +1,33 @@
-use std::cmp::Ordering;
-use std::fmt;
+use serde::{Deserialize, Serialize};
+use std::{cmp::Ordering, fmt};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Value<T, S> {
     pub val: T,
     pub sort: S,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Variable<V, S> {
     pub var: V,
     pub sort: S,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Operator<O, S> {
     pub op: O,
     pub sort: S,
     pub arity: Vec<S>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Operation<T, V, O, S> {
-    op: Operator<O, S>,
+    operator: Operator<O, S>,
     args: Vec<Ast<T, V, O, S>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Ast<T, V, O, S> {
     Val(Value<T, S>),
     Var(Variable<V, S>),
@@ -38,7 +39,7 @@ impl<T, V, O, S> Ast<T, V, O, S> {
         match self {
             Self::Val(x) => &x.sort,
             Self::Var(v) => &v.sort,
-            Self::Op(o) => &o.op.sort,
+            Self::Op(o) => &o.operator.sort,
         }
     }
 }
@@ -77,25 +78,25 @@ pub enum InvalidOperation<T, V, O, S> {
 
 impl<T, V, O, S> Operation<T, V, O, S> {
     pub fn new(
-        op: Operator<O, S>,
+        operator: Operator<O, S>,
         args: Vec<Ast<T, V, O, S>>,
     ) -> Result<Self, InvalidOperation<T, V, O, S>>
     where
         S: PartialEq + Clone,
         Ast<T, V, O, S>: Clone,
     {
-        match args.len().cmp(&op.arity.len()) {
+        match args.len().cmp(&operator.arity.len()) {
             Ordering::Greater => Err(InvalidOperation::TooManyArguments(
-                args.len() - op.arity.len(),
+                args.len() - operator.arity.len(),
             )),
             Ordering::Less => Err(InvalidOperation::TooFewArguments(
-                op.arity.len() - args.len(),
+                operator.arity.len() - args.len(),
             )),
             Ordering::Equal => {
                 let mismatched_sorts: Vec<_> = args
                     .iter()
                     .enumerate()
-                    .zip(op.arity.iter())
+                    .zip(operator.arity.iter())
                     .filter_map(|((index, arg), sort)| {
                         if arg.sort() == sort {
                             None
@@ -109,7 +110,7 @@ impl<T, V, O, S> Operation<T, V, O, S> {
                     })
                     .collect();
                 if mismatched_sorts.is_empty() {
-                    Ok(Self { op, args })
+                    Ok(Self { operator, args })
                 } else {
                     Err(InvalidOperation::SortMismatches(mismatched_sorts))
                 }
@@ -194,7 +195,7 @@ where
     S: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}", self.op)?;
+        write!(f, "({}", self.operator)?;
         for a in self.args.iter() {
             write!(f, " {}", a)?;
         }
@@ -206,20 +207,24 @@ where
 #[allow(non_snake_case)]
 mod tests {
     use super::*;
-    use insta::{assert_debug_snapshot, assert_display_snapshot};
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Clone, Debug, PartialEq)]
+    use insta::{
+        assert_debug_snapshot, assert_display_snapshot, assert_json_snapshot, assert_ron_snapshot,
+    };
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     enum Var {
         X,
     }
 
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     enum Op {
         Plus,
         Times,
     }
 
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     enum Sort {
         Num,
         Other,
@@ -280,6 +285,16 @@ mod tests {
     #[test]
     fn ast__display() {
         assert_display_snapshot!(example_ast());
+    }
+
+    #[test]
+    fn ast__json() {
+        assert_json_snapshot!(example_ast());
+    }
+
+    #[test]
+    fn ast__ron() {
+        assert_ron_snapshot!(example_ast());
     }
 
     #[test]

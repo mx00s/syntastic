@@ -1,0 +1,40 @@
+---
+source: src/ast.rs
+expression: example_ast()
+---
+{
+  "operator": {
+    "op": "Plus",
+    "sort": "Num",
+    "arity": [
+      "Num",
+      "Num"
+    ]
+  },
+  "args": [
+    {
+      "val": 2,
+      "sort": "Num"
+    },
+    {
+      "operator": {
+        "op": "Times",
+        "sort": "Num",
+        "arity": [
+          "Num",
+          "Num"
+        ]
+      },
+      "args": [
+        {
+          "val": 3,
+          "sort": "Num"
+        },
+        {
+          "var": "X",
+          "sort": "Num"
+        }
+      ]
+    }
+  ]
+}

@@ -8,4 +8,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Represent and display generic abstract syntax trees.
+- Represent, display, serialize, and deserialize generic abstract syntax trees.

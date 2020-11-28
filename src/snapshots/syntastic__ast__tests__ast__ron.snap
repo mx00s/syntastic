@@ -1,0 +1,40 @@
+---
+source: src/ast.rs
+expression: example_ast()
+---
+Operation(
+  operator: Operator(
+    op: Plus,
+    sort: Num,
+    arity: [
+      Num,
+      Num,
+    ],
+  ),
+  args: [
+    Value(
+      val: 2,
+      sort: Num,
+    ),
+    Operation(
+      operator: Operator(
+        op: Times,
+        sort: Num,
+        arity: [
+          Num,
+          Num,
+        ],
+      ),
+      args: [
+        Value(
+          val: 3,
+          sort: Num,
+        ),
+        Variable(
+          var: X,
+          sort: Num,
+        ),
+      ],
+    ),
+  ],
+)
