@@ -10,5 +10,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Represent, display, serialize, and deserialize generic abstract syntax trees.
 
-[Unreleased]: https://github.com/olivierlacan/keep-a-changelog/compare/v1.0.0...HEAD
-[0.2.0]: https://github.com/mx00s/syntastic/compare/0.2.0...0.1.0
+[Unreleased]: https://github.com/mx00s/mx00s/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/mx00s/syntastic/compare/0.1.0...0.2.0
