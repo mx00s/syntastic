@@ -1,10 +1,13 @@
 [package]
 name = "syntastic"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Sage Mitchell <dev@mx00s.com>"]
 edition = "2018"
 description = "Generic abstract syntax representation"
+keywords = ["ast", "syntax", "grammar", "data-structures"]
+categories = ["data-structures"]
 repository = "https://github.com/mx00s/syntastic"
+documentation = "https://docs.rs/syntastic"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 
@@ -16,3 +19,6 @@ insta = { version = "1.3.0", features = ["ron"] }
 proptest = "0.10"
 proptest-derive = "0.2"
 serde_json = "1.0"
+
+[badges]
+maintenance = { status = "experimental" }
