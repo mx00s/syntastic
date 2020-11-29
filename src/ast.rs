@@ -221,20 +221,12 @@ mod tests {
 
     // TODO: use proptest-derive on `Ast` and its components, and distinguish between ASTs with valid operation nodes and those with any invalid nodes.
 
-    fn arb_ast(sort: Sort) -> impl Strategy<Value = Ast<Var, Op, Sort>> {
-        prop_oneof![
-            if sort == Sort::Num {
-                arb_value()
-            } else {
-                arb_variable(sort.clone())
-            },
-            arb_variable(sort.clone()),
-            arb_operation(sort),
-        ]
-    }
-
-    fn arb_value() -> BoxedStrategy<Ast<Var, Op, Sort>> {
-        any::<usize>().prop_map(|n| Var::Num(n).into()).boxed()
+    fn arb_ast(sort: Sort, size: usize) -> impl Strategy<Value = Ast<Var, Op, Sort>> {
+        if size == 0 {
+            arb_variable(sort.to_owned()).boxed()
+        } else {
+            prop_oneof![arb_variable(sort.to_owned()), arb_operation(sort, size),].boxed()
+        }
     }
 
     fn arb_variable(sort: Sort) -> BoxedStrategy<Ast<Var, Op, Sort>> {
@@ -250,10 +242,10 @@ mod tests {
     }
 
     prop_compose! {
-        fn arb_operation(sort: Sort)(
+        fn arb_operation(sort: Sort, size: usize)(
             o in arb_op().prop_filter("Generated operator must have expected sort", move |o| o.sort() == &sort)
         )(
-            args in arb_args(o.arity()),
+            args in arb_args(o.arity(), size.saturating_sub(1)),
             o in Just(o)
         ) -> Ast<Var, Op, Sort> {
             (o, args)
@@ -263,17 +255,28 @@ mod tests {
     }
 
     fn arb_var() -> impl Strategy<Value = Var> {
-        prop_oneof![Just(Var::X), Just(Var::Y),]
+        prop_oneof![
+            any::<usize>().prop_map(Var::Num),
+            Just(Var::X),
+            Just(Var::Y)
+        ]
     }
 
     fn arb_op() -> impl Strategy<Value = Op> {
         prop_oneof![Just(Op::Plus), Just(Op::Times),]
     }
 
-    fn arb_args(arity: Vec<Sort>) -> BoxedStrategy<Vec<Ast<Var, Op, Sort>>> {
+    fn arb_args(arity: Vec<Sort>, size: usize) -> BoxedStrategy<Vec<Ast<Var, Op, Sort>>> {
+        let size = size.saturating_sub(1);
+
         match arity.len() {
-            1 => arb_ast(arity[0].clone()).prop_map(|a0| vec![a0]).boxed(),
-            2 => (arb_ast(arity[0].clone()), arb_ast(arity[1].clone()))
+            1 => arb_ast(arity[0].clone(), size)
+                .prop_map(|a0| vec![a0])
+                .boxed(),
+            2 => (
+                arb_ast(arity[0].clone(), size),
+                arb_ast(arity[1].clone(), size),
+            )
                 .prop_map(|(a0, a1)| vec![a0, a1])
                 .boxed(),
             _ => unimplemented!(),
@@ -457,7 +460,7 @@ mod tests {
     proptest! {
         #[test]
         fn meta__ast_strategy_returns_ast_of_expected_sort(
-            ast in arb_ast(Sort::Num)
+            ast in arb_ast(Sort::Num, 50)
         ) {
             prop_assert_eq!(ast.sort(), &Sort::Num);
         }
@@ -466,7 +469,7 @@ mod tests {
     proptest! {
         #[test]
         fn ast__roundtrips_through_serialization_and_deserialization(
-            ast in arb_ast(Sort::Num)
+            ast in arb_ast(Sort::Num, 50)
         ) {
             let roundtripped: Ast<Var, Op, Sort> =
                 serde_json::from_str(&serde_json::to_string(&ast).unwrap()).unwrap();
