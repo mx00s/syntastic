@@ -351,6 +351,15 @@ mod tests {
     }
 
     #[test]
+    fn ast__valid_operation() {
+        let operation = Ast::from_op(
+            Op::Plus,
+            vec![Ast::from_val(1), Ast::from_var(Var::X)],
+        );
+        assert!(operation.is_ok());
+    }
+
+    #[test]
     fn invalid_ast_operation__too_many_args() {
         let operation = Ast::from_op(
             Op::Plus,
