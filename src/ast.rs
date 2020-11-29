@@ -359,11 +359,13 @@ mod tests {
             Op::Plus,
             vec![
                 Var::Num(2).into(),
-                (Op::Times, vec![Var::Num(3).into(), Var::X.into()]).try_into().unwrap(),
+                (Op::Times, vec![Var::Num(3).into(), Var::X.into()])
+                    .try_into()
+                    .unwrap(),
             ],
         )
-        .try_into()
-        .unwrap()
+            .try_into()
+            .unwrap()
     }
 
     #[test]
@@ -432,11 +434,13 @@ mod tests {
             Op::Plus,
             vec![
                 Var::Num(2).into(),
-                (Op::Times, vec![Var::Num(3).into(), Var::Num(4).into()]).try_into().unwrap(),
+                (Op::Times, vec![Var::Num(3).into(), Var::Num(4).into()])
+                    .try_into()
+                    .unwrap(),
             ],
         )
-        .try_into()
-        .unwrap());
+            .try_into()
+            .unwrap());
         assert_eq!(actual, expected);
     }
 
