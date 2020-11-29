@@ -185,6 +185,8 @@ mod tests {
 
     // TODO: extract proptest strategies for `Ast`, leaving those for test types
 
+    // TODO: use proptest-derive on `Ast` and its components, and distinguish between ASTs with valid operation nodes and those with any invalid nodes.
+
     fn arb_ast(sort: Sort) -> impl Strategy<Value = Ast<usize, Var, Op, Sort>> {
         prop_oneof![
             if sort == Sort::Num {
@@ -380,6 +382,15 @@ mod tests {
                 argument: Ast::from_var(Var::Y),
             }]),
         );
+    }
+
+    proptest! {
+        #[test]
+        fn meta__ast_strategy_returns_ast_of_expected_sort(
+            ast in arb_ast(Sort::Num)
+        ) {
+            prop_assert_eq!(ast.sort(), &Sort::Num);
+        }
     }
 
     proptest! {
