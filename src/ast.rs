@@ -181,6 +181,67 @@ mod tests {
     use insta::{
         assert_debug_snapshot, assert_json_snapshot, assert_ron_snapshot, assert_snapshot,
     };
+    use proptest::prelude::*;
+
+    // TODO: extract proptest strategies for `Ast`, leaving those for test types
+
+    fn arb_ast(sort: Sort) -> impl Strategy<Value = Ast<usize, Var, Op, Sort>> {
+        prop_oneof![
+            if sort == Sort::Num {
+                arb_value()
+            } else {
+                arb_variable(sort.clone())
+            },
+            arb_variable(sort.clone()),
+            arb_operation(sort.clone()),
+        ]
+    }
+
+    fn arb_value() -> BoxedStrategy<Ast<usize, Var, Op, Sort>> {
+        any::<usize>().prop_map(Ast::from_val).boxed()
+    }
+
+    fn arb_variable(sort: Sort) -> BoxedStrategy<Ast<usize, Var, Op, Sort>> {
+        arb_var()
+            .prop_filter_map("Generated variable must have the expected sort", move |v| {
+                if v.sort() == &sort {
+                    Some(Ast::from_var(v))
+                } else {
+                    None
+                }
+            })
+            .boxed()
+    }
+
+    prop_compose! {
+        fn arb_operation(sort: Sort)(
+            o in arb_op().prop_filter("Generated operator must have expected sort", move |o| o.sort() == &sort)
+        )(
+            args in arb_args(o.arity()),
+            o in Just(o)
+        ) -> Ast<usize, Var, Op, Sort> {
+            Ast::from_op(o, args)
+                .expect("Generated arguments must be compatible with generated operator")
+        }
+    }
+
+    fn arb_var() -> impl Strategy<Value = Var> {
+        prop_oneof![Just(Var::X), Just(Var::Y),]
+    }
+
+    fn arb_op() -> impl Strategy<Value = Op> {
+        prop_oneof![Just(Op::Plus), Just(Op::Times),]
+    }
+
+    fn arb_args(arity: Vec<Sort>) -> BoxedStrategy<Vec<Ast<usize, Var, Op, Sort>>> {
+        match arity.len() {
+            1 => arb_ast(arity[0].clone()).prop_map(|a0| vec![a0]).boxed(),
+            2 => (arb_ast(arity[0].clone()), arb_ast(arity[1].clone()))
+                .prop_map(|(a0, a1)| vec![a0, a1])
+                .boxed(),
+            _ => unimplemented!(),
+        }
+    }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum Var {
@@ -268,22 +329,22 @@ mod tests {
     }
 
     #[test]
-    fn ast__debug() {
+    fn ast__debug_snapshot() {
         assert_debug_snapshot!(example_ast());
     }
 
     #[test]
-    fn ast__sexp() {
+    fn ast__sexp_snapshot() {
         assert_snapshot!(example_ast().render_sexp());
     }
 
     #[test]
-    fn ast__json() {
+    fn ast__json_snapshot() {
         assert_json_snapshot!(example_ast());
     }
 
     #[test]
-    fn ast__ron() {
+    fn ast__ron_snapshot() {
         assert_ron_snapshot!(example_ast());
     }
 
@@ -321,7 +382,17 @@ mod tests {
         );
     }
 
-    // TODO: roundtrip serialization/deserialization proptest
+    proptest! {
+        #[test]
+        fn ast__roundtrips_through_serialization_and_deserialization(
+            ast in arb_ast(Sort::Num)
+        ) {
+            let roundtripped: Ast<usize, Var, Op, Sort> =
+                serde_json::from_str(&serde_json::to_string(&ast).unwrap()).unwrap();
+
+            prop_assert_eq!(roundtripped, ast);
+        }
+    }
 
     // TODO: substitution (p. 5)
 
