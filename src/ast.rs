@@ -1,17 +1,30 @@
+//! Abstract syntax trees
+//!
+//! [Ast]s are trees with [Variable]s, `V`, as leaves and operations as non-leaves.
+//! Each [Ast] and all of its subcomponents are indexed by some syntactic sort, `S`.
+//! Each [Operator], `O`, encodes a sequence of sorts and can be composed with [Ast]s of those
+//! sorts to construct an operation node.
+
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, convert::TryFrom, marker::PhantomData};
+use std::{cmp::Ordering, convert::TryFrom, error::Error, fmt, marker::PhantomData};
 
 #[cfg(test)]
 use proptest::prelude::*;
 #[cfg(test)]
-use std::fmt::{self, Write};
+use std::fmt::Write;
 
+/// Leaf node of an abstract syntax tree indexed by some sort, `S`
 pub trait Variable<S> {
+    /// Sort of syntactic element
     fn sort(&self) -> &S;
 }
 
+/// Non-leaf node of an abstract syntax tree indexed by some sort, `S`
 pub trait Operator<S> {
+    /// Sort of syntactic element
     fn sort(&self) -> &S;
+
+    /// Expected sorts of [Ast] operands
     fn arity(&self) -> Vec<S>;
 }
 
@@ -21,9 +34,11 @@ enum Node<V, O, S> {
     Operation(O, Vec<Node<V, O, S>>),
 }
 
+/// Abstract syntax tree of sort, `S`, with leaves ,`V`, and non-leaves, `O`
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Ast<V, O, S>(Node<V, O, S>);
 
+/// Error matching [Ast] with sort expected by [Operator]
 #[derive(Debug, PartialEq)]
 pub struct ArgumentSortMismatch<V, O, S> {
     index: usize,
@@ -31,22 +46,91 @@ pub struct ArgumentSortMismatch<V, O, S> {
     argument: Ast<V, O, S>,
 }
 
+/// Error constructing operation from [Operator] and [Ast] arguments
 #[derive(Debug, PartialEq)]
 pub enum InvalidOperation<V, O, S> {
+    /// Operator expects more arguments
     TooFewArguments(usize),
+    /// Operator expects fewer arguments
     TooManyArguments(usize),
+    /// Operator expects arguments of different sorts
     SortMismatches(Vec<ArgumentSortMismatch<V, O, S>>),
+}
+
+/// Error substituting [Ast] in place of [Variable] due to misaligned sorts, `S`
+#[derive(Debug, PartialEq)]
+pub struct InvalidSubstitution<S> {
+    subject: S,
+    target: S,
+}
+
+impl<V, O, S> Error for ArgumentSortMismatch<V, O, S>
+where
+    V: fmt::Debug,
+    O: fmt::Debug,
+    S: fmt::Debug,
+{
+}
+
+impl<V, O, S> Error for InvalidOperation<V, O, S>
+where
+    V: fmt::Debug,
+    O: fmt::Debug,
+    S: fmt::Debug,
+{
+}
+
+impl<S> Error for InvalidSubstitution<S> where S: fmt::Debug {}
+
+impl<V, O, S> fmt::Display for ArgumentSortMismatch<V, O, S>
+where
+    S: fmt::Debug,
+    Ast<V, O, S>: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Argument at index {} should be of sort {:?}: {:?}",
+            self.index, self.parameter, self.argument
+        )
+    }
+}
+
+impl<V, O, S> fmt::Display for InvalidOperation<V, O, S>
+where
+    S: fmt::Debug,
+    Ast<V, O, S>: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooFewArguments(n) => write!(f, "Operator requires {} more arguments", n),
+            Self::TooManyArguments(n) => write!(f, "Operator requires {} fewer arguments", n),
+            Self::SortMismatches(ms) => {
+                for m in ms {
+                    write!(f, "{}", m)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl<S> fmt::Display for InvalidSubstitution<S>
+where
+    S: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Cannot substitute {:?} for {:?}",
+            self.subject, self.target
+        )
+    }
 }
 
 #[cfg(test)]
 pub trait ArbitraryOfSort<S> {
     fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>>;
-}
-
-#[derive(Debug, PartialEq)]
-pub struct InvalidSubstitution<S> {
-    subject: S,
-    target: S,
 }
 
 impl<V, O, S> Node<V, O, S> {
@@ -159,6 +243,7 @@ impl<V, O, S> Node<V, O, S> {
 }
 
 impl<V, O, S> Ast<V, O, S> {
+    /// Sort of syntactic element
     pub fn sort(&self) -> &S
     where
         V: Variable<S>,
@@ -167,6 +252,7 @@ impl<V, O, S> Ast<V, O, S> {
         self.0.sort()
     }
 
+    /// Replace each `subject` variable with the `target` [Ast].
     pub fn substitute(&self, target: Self, subject: V) -> Result<Self, InvalidSubstitution<S>>
     where
         V: Clone + Variable<S> + PartialEq,
