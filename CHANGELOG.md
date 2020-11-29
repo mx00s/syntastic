@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Restrict stack depth of AST proptest strategies to mitigate stackoverflows.
 
+### Changed
+- Extract generic parts of AST proptest strategies from the tests module.
+
 ## [0.4.0] - 2020-11-28
 ### Added
 - AST variable substitution.

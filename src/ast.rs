@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, convert::TryFrom, marker::PhantomData};
 
 #[cfg(test)]
+use proptest::prelude::*;
+#[cfg(test)]
 use std::fmt::{self, Write};
 
 pub trait Variable<S> {
@@ -34,6 +36,11 @@ pub enum InvalidOperation<V, O, S> {
     TooFewArguments(usize),
     TooManyArguments(usize),
     SortMismatches(Vec<ArgumentSortMismatch<V, O, S>>),
+}
+
+#[cfg(test)]
+pub trait ArbitraryOfSort<S> {
+    fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -178,6 +185,108 @@ impl<V, O, S> Ast<V, O, S> {
     {
         self.0.render_sexp()
     }
+
+    #[cfg(test)]
+    pub fn arb_ast(size: usize) -> impl Strategy<Value = Self>
+    where
+        V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+        O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
+        S: 'static + Clone + fmt::Debug + PartialEq + Arbitrary,
+    {
+        any::<S>()
+            .prop_flat_map(move |sort| Self::arb_node(sort, size))
+            .prop_filter_map("Skip when strategy returns None", |n| n)
+    }
+
+    #[cfg(test)]
+    pub fn arb_node<'a>(sort: S, size: usize) -> impl Strategy<Value = Option<Ast<V, O, S>>>
+    where
+        V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+        O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
+        S: 'static + Clone + fmt::Debug + PartialEq,
+        Ast<V, O, S>: 'a,
+    {
+        if size == 0 {
+            Self::arb_variable(sort).boxed()
+        } else {
+            prop_oneof![
+                Self::arb_variable(sort.clone()),
+                Self::arb_operation(sort, size)
+            ]
+            .boxed()
+        }
+    }
+
+    #[cfg(test)]
+    fn arb_variable(sort: S) -> impl Strategy<Value = Option<Self>>
+    where
+        V: Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+        O: Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
+        S: Clone + fmt::Debug + PartialEq,
+    {
+        V::of_sort(&sort).prop_map(|v| Some(Self::from(*(v?))))
+    }
+
+    #[cfg(test)]
+    fn arb_operation(sort: S, size: usize) -> impl Strategy<Value = Option<Ast<V, O, S>>>
+    where
+        V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+        O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
+        S: 'static + Clone + fmt::Debug + PartialEq,
+    {
+        O::of_sort(&sort).prop_flat_map(move |o| {
+            if let Some(o) = o.clone() {
+                Self::arb_args((o).arity(), size.saturating_sub(1)).boxed()
+            } else {
+                Just(None).boxed()
+            }
+            .prop_map(move |args| {
+                Some(
+                    Ast::try_from((*(o.clone()?), args?))
+                        .expect("Generated arguments must be compatible with generated operator"),
+                )
+            })
+        })
+    }
+
+    #[cfg(test)]
+    fn arb_args(arity: Vec<S>, size: usize) -> impl Strategy<Value = Option<Vec<Ast<V, O, S>>>>
+    where
+        V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+        O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
+        S: 'static + Clone + fmt::Debug + PartialEq,
+    {
+        let size = size.saturating_sub(1);
+
+        match arity.len() {
+            1 => Self::arb_node(arity[0].clone(), size)
+                .prop_map(|a0| Some(vec![a0?]))
+                .boxed(),
+            2 => (
+                Self::arb_node(arity[0].clone(), size),
+                Self::arb_node(arity[1].clone(), size),
+            )
+                .prop_map(|(a0, a1)| Some(vec![a0?, a1?]))
+                .boxed(),
+            _ => Just(None).boxed(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<V, O, S> ArbitraryOfSort<S> for Ast<V, O, S>
+where
+    V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+    O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
+    S: 'static + Clone + fmt::Debug + PartialEq,
+{
+    fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>> {
+        const SIZE: usize = 50;
+
+        Self::arb_node(sort.clone(), SIZE)
+            .prop_map(|n| n.map(Box::new))
+            .boxed()
+    }
 }
 
 impl<V, O, S> From<V> for Ast<V, O, S>
@@ -215,88 +324,22 @@ mod tests {
     use insta::{
         assert_debug_snapshot, assert_json_snapshot, assert_ron_snapshot, assert_snapshot,
     };
-    use proptest::prelude::*;
+    use proptest_derive::Arbitrary;
 
-    // TODO: extract proptest strategies for `Ast`, leaving those for test types
-
-    // TODO: use proptest-derive on `Ast` and its components, and distinguish between ASTs with valid operation nodes and those with any invalid nodes.
-
-    fn arb_ast(sort: Sort, size: usize) -> impl Strategy<Value = Ast<Var, Op, Sort>> {
-        if size == 0 {
-            arb_variable(sort).boxed()
-        } else {
-            prop_oneof![arb_variable(sort.to_owned()), arb_operation(sort, size),].boxed()
-        }
-    }
-
-    fn arb_variable(sort: Sort) -> BoxedStrategy<Ast<Var, Op, Sort>> {
-        arb_var()
-            .prop_filter_map("Generated variable must have the expected sort", move |v| {
-                if v.sort() == &sort {
-                    Some(v.into())
-                } else {
-                    None
-                }
-            })
-            .boxed()
-    }
-
-    prop_compose! {
-        fn arb_operation(sort: Sort, size: usize)(
-            o in arb_op().prop_filter("Generated operator must have expected sort", move |o| o.sort() == &sort)
-        )(
-            args in arb_args(o.arity(), size.saturating_sub(1)),
-            o in Just(o)
-        ) -> Ast<Var, Op, Sort> {
-            (o, args)
-                .try_into()
-                .expect("Generated arguments must be compatible with generated operator")
-        }
-    }
-
-    fn arb_var() -> impl Strategy<Value = Var> {
-        prop_oneof![
-            any::<usize>().prop_map(Var::Num),
-            Just(Var::X),
-            Just(Var::Y)
-        ]
-    }
-
-    fn arb_op() -> impl Strategy<Value = Op> {
-        prop_oneof![Just(Op::Plus), Just(Op::Times),]
-    }
-
-    fn arb_args(arity: Vec<Sort>, size: usize) -> BoxedStrategy<Vec<Ast<Var, Op, Sort>>> {
-        let size = size.saturating_sub(1);
-
-        match arity.len() {
-            1 => arb_ast(arity[0].clone(), size)
-                .prop_map(|a0| vec![a0])
-                .boxed(),
-            2 => (
-                arb_ast(arity[0].clone(), size),
-                arb_ast(arity[1].clone(), size),
-            )
-                .prop_map(|(a0, a1)| vec![a0, a1])
-                .boxed(),
-            _ => unimplemented!(),
-        }
-    }
-
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     enum Var {
         Num(usize),
         X,
         Y,
     }
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Arbitrary)]
     enum Op {
         Plus,
         Times,
     }
 
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Arbitrary)]
     enum Sort {
         Num,
         Other,
@@ -324,6 +367,28 @@ mod tests {
             match self {
                 Op::Plus => vec![Sort::Num, Sort::Num],
                 Op::Times => vec![Sort::Num, Sort::Num],
+            }
+        }
+    }
+
+    impl ArbitraryOfSort<Sort> for Var {
+        fn of_sort(sort: &Sort) -> BoxedStrategy<Option<Box<Self>>> {
+            match sort {
+                Sort::Num => prop_oneof![
+                    any::<usize>().prop_map(|n| Some(Box::new(Var::Num(n)))),
+                    Just(Some(Box::new(Var::X))),
+                ]
+                .boxed(),
+                Sort::Other => Just(Some(Box::new(Var::Y))).boxed(),
+            }
+        }
+    }
+
+    impl ArbitraryOfSort<Sort> for Op {
+        fn of_sort(sort: &Sort) -> BoxedStrategy<Option<Box<Self>>> {
+            match sort {
+                Sort::Num => any::<Op>().prop_map(|o| Some(Box::new(o))).boxed(),
+                Sort::Other => Just(None).boxed(),
             }
         }
     }
@@ -458,18 +523,20 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1000))]
         #[test]
         fn meta__ast_strategy_returns_ast_of_expected_sort(
-            ast in arb_ast(Sort::Num, 50)
+            ast in Ast::<Var, Op, Sort>::of_sort(&Sort::Num).prop_filter_map("Skip when strategy returns None", |n| n)
         ) {
             prop_assert_eq!(ast.sort(), &Sort::Num);
         }
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1000))]
         #[test]
         fn ast__roundtrips_through_serialization_and_deserialization(
-            ast in arb_ast(Sort::Num, 50)
+            ast in Ast::<Var, Op, Sort>::arb_ast(50)
         ) {
             let roundtripped: Ast<Var, Op, Sort> =
                 serde_json::from_str(&serde_json::to_string(&ast).unwrap()).unwrap();
