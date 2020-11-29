@@ -5,14 +5,6 @@
 [![CI](https://github.com/mx00s/syntastic/workflows/Continuous%20Integration/badge.svg)](https://github.com/mx00s/syntastic/actions)
 [![Coverage Status](https://coveralls.io/repos/github/mx00s/syntastic/badge.svg?branch=main)](https://coveralls.io/github/mx00s/syntastic?branch=main)
 
-## Installation
-
-### Cargo
-
-* Install the rust toolchain in order to have cargo installed by following
-  [this](https://www.rust-lang.org/tools/install) guide.
-* run `cargo install syntastic`
-
 ## License
 
 Licensed under either of
