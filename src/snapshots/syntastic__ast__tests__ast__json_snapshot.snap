@@ -7,8 +7,10 @@ expression: example_ast()
     "Plus",
     [
       {
-        "Value": [
-          2
+        "Variable": [
+          {
+            "Num": 2
+          }
         ]
       },
       {
@@ -16,12 +18,16 @@ expression: example_ast()
           "Times",
           [
             {
-              "Value": [
-                3
+              "Variable": [
+                {
+                  "Num": 3
+                }
               ]
             },
             {
-              "Variable": "X"
+              "Variable": [
+                "X"
+              ]
             }
           ]
         ]

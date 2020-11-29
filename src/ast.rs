@@ -4,10 +4,6 @@ use std::{cmp::Ordering, marker::PhantomData};
 #[cfg(test)]
 use std::fmt::{self, Write};
 
-pub trait Value<S> {
-    fn sort(&self) -> &S;
-}
-
 pub trait Variable<S> {
     fn sort(&self) -> &S;
 }
@@ -18,27 +14,26 @@ pub trait Operator<S> {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-enum Node<T, V, O, S> {
-    Value(T, #[serde(skip)] PhantomData<S>),
-    Variable(V),
-    Operation(O, Vec<Node<T, V, O, S>>),
+enum Node<V, O, S> {
+    Variable(V, #[serde(skip)] PhantomData<S>),
+    Operation(O, Vec<Node<V, O, S>>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Ast<T, V, O, S>(Node<T, V, O, S>);
+pub struct Ast<V, O, S>(Node<V, O, S>);
 
 #[derive(Debug, PartialEq)]
-pub struct ArgumentSortMismatch<T, V, O, S> {
+pub struct ArgumentSortMismatch<V, O, S> {
     index: usize,
     parameter: S,
-    argument: Ast<T, V, O, S>,
+    argument: Ast<V, O, S>,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum InvalidOperation<T, V, O, S> {
+pub enum InvalidOperation<V, O, S> {
     TooFewArguments(usize),
     TooManyArguments(usize),
-    SortMismatches(Vec<ArgumentSortMismatch<T, V, O, S>>),
+    SortMismatches(Vec<ArgumentSortMismatch<V, O, S>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,23 +42,20 @@ pub struct InvalidSubstitution<S> {
     target: S,
 }
 
-impl<T, V, O, S> Node<T, V, O, S> {
+impl<V, O, S> Node<V, O, S> {
     fn sort(&self) -> &S
     where
-        T: Value<S>,
         V: Variable<S>,
         O: Operator<S>,
     {
         match self {
-            Self::Value(x, _phantom) => &x.sort(),
-            Self::Variable(v) => &v.sort(),
+            Self::Variable(v, _phantom) => &v.sort(),
             Self::Operation(o, _) => &o.sort(),
         }
     }
 
-    fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<T, V, O, S>>
+    fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<V, O, S>>
     where
-        T: Clone + Value<S>,
         V: Clone + Variable<S>,
         O: Clone + Operator<S>,
         S: Clone + PartialEq,
@@ -101,7 +93,6 @@ impl<T, V, O, S> Node<T, V, O, S> {
 
     fn substitute(&self, target: Self, x: V) -> Result<Self, InvalidSubstitution<S>>
     where
-        T: Clone + Value<S>,
         V: Clone + Variable<S> + PartialEq,
         O: Clone + Operator<S>,
         S: Clone + PartialEq,
@@ -113,14 +104,14 @@ impl<T, V, O, S> Node<T, V, O, S> {
             })
         } else {
             match self {
-                Self::Variable(y) => {
+                Self::Variable(y, _phantom) => {
                     if y == &x {
                         Ok(target)
                     } else {
                         Ok((*self).clone())
                     }
                 }
-                Self::Value(_, _) => Ok((*self).clone()),
+                // Self::Value(_, _) => Ok((*self).clone()),
                 Self::Operation(o, args) => {
                     let mut new_args = Vec::new();
                     for a in args {
@@ -136,7 +127,6 @@ impl<T, V, O, S> Node<T, V, O, S> {
     #[cfg(test)]
     fn render_sexp(&self) -> String
     where
-        T: fmt::Display + Value<S>,
         V: fmt::Display + Variable<S>,
         O: fmt::Display + Operator<S>,
         S: fmt::Display,
@@ -144,8 +134,7 @@ impl<T, V, O, S> Node<T, V, O, S> {
         let mut buf = String::new();
         let write = |b: &mut String, s: &str| b.write_str(s).unwrap();
         match self {
-            Node::Value(x, _phantom) => write(&mut buf, &format!("[{} : {}]", x, x.sort())),
-            Node::Variable(v) => write(&mut buf, &format!("[{} : {}]", v, v.sort())),
+            Node::Variable(v, _phantom) => write(&mut buf, &format!("[{} : {}]", v, v.sort())),
             Node::Operation(o, args) => {
                 write(&mut buf, &format!("([{} : ", &o));
                 for p in o.arity() {
@@ -163,33 +152,17 @@ impl<T, V, O, S> Node<T, V, O, S> {
     }
 }
 
-impl<T, V, O, S> Ast<T, V, O, S> {
+impl<V, O, S> Ast<V, O, S> {
     pub fn sort(&self) -> &S
     where
-        T: Value<S>,
         V: Variable<S>,
         O: Operator<S>,
     {
         self.0.sort()
     }
 
-    pub fn from_val(x: T) -> Self
+    pub fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<V, O, S>>
     where
-        T: Value<S>,
-    {
-        Self(Node::Value(x, PhantomData))
-    }
-
-    pub fn from_var(v: V) -> Self
-    where
-        V: Variable<S>,
-    {
-        Self(Node::Variable(v))
-    }
-
-    pub fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<T, V, O, S>>
-    where
-        T: Clone + Value<S>,
         V: Clone + Variable<S>,
         O: Clone + Operator<S>,
         S: Clone + PartialEq,
@@ -202,7 +175,6 @@ impl<T, V, O, S> Ast<T, V, O, S> {
 
     pub fn substitute(&self, target: Self, subject: V) -> Result<Self, InvalidSubstitution<S>>
     where
-        T: Clone + Value<S>,
         V: Clone + Variable<S> + PartialEq,
         O: Clone + Operator<S>,
         S: Clone + PartialEq,
@@ -213,12 +185,20 @@ impl<T, V, O, S> Ast<T, V, O, S> {
     #[cfg(test)]
     fn render_sexp(&self) -> String
     where
-        T: fmt::Display + Value<S>,
         V: fmt::Display + Variable<S>,
         O: fmt::Display + Operator<S>,
         S: fmt::Display,
     {
         self.0.render_sexp()
+    }
+}
+
+impl<V, O, S> From<V> for Ast<V, O, S>
+where
+    V: Variable<S>,
+{
+    fn from(v: V) -> Self {
+        Self(Node::Variable(v, PhantomData))
     }
 }
 
@@ -237,7 +217,7 @@ mod tests {
 
     // TODO: use proptest-derive on `Ast` and its components, and distinguish between ASTs with valid operation nodes and those with any invalid nodes.
 
-    fn arb_ast(sort: Sort) -> impl Strategy<Value = Ast<usize, Var, Op, Sort>> {
+    fn arb_ast(sort: Sort) -> impl Strategy<Value = Ast<Var, Op, Sort>> {
         prop_oneof![
             if sort == Sort::Num {
                 arb_value()
@@ -249,15 +229,15 @@ mod tests {
         ]
     }
 
-    fn arb_value() -> BoxedStrategy<Ast<usize, Var, Op, Sort>> {
-        any::<usize>().prop_map(Ast::from_val).boxed()
+    fn arb_value() -> BoxedStrategy<Ast<Var, Op, Sort>> {
+        any::<usize>().prop_map(|n| Var::Num(n).into()).boxed()
     }
 
-    fn arb_variable(sort: Sort) -> BoxedStrategy<Ast<usize, Var, Op, Sort>> {
+    fn arb_variable(sort: Sort) -> BoxedStrategy<Ast<Var, Op, Sort>> {
         arb_var()
             .prop_filter_map("Generated variable must have the expected sort", move |v| {
                 if v.sort() == &sort {
-                    Some(Ast::from_var(v))
+                    Some(v.into())
                 } else {
                     None
                 }
@@ -271,7 +251,7 @@ mod tests {
         )(
             args in arb_args(o.arity()),
             o in Just(o)
-        ) -> Ast<usize, Var, Op, Sort> {
+        ) -> Ast<Var, Op, Sort> {
             Ast::from_op(o, args)
                 .expect("Generated arguments must be compatible with generated operator")
         }
@@ -285,7 +265,7 @@ mod tests {
         prop_oneof![Just(Op::Plus), Just(Op::Times),]
     }
 
-    fn arb_args(arity: Vec<Sort>) -> BoxedStrategy<Vec<Ast<usize, Var, Op, Sort>>> {
+    fn arb_args(arity: Vec<Sort>) -> BoxedStrategy<Vec<Ast<Var, Op, Sort>>> {
         match arity.len() {
             1 => arb_ast(arity[0].clone()).prop_map(|a0| vec![a0]).boxed(),
             2 => (arb_ast(arity[0].clone()), arb_ast(arity[1].clone()))
@@ -297,6 +277,7 @@ mod tests {
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum Var {
+        Num(usize),
         X,
         Y,
     }
@@ -313,15 +294,16 @@ mod tests {
         Other,
     }
 
-    impl Value<Sort> for usize {
-        fn sort(&self) -> &Sort {
-            &Sort::Num
-        }
-    }
+    // impl Value<Sort> for usize {
+    //     fn sort(&self) -> &Sort {
+    //         &Sort::Num
+    //     }
+    // }
 
     impl Variable<Sort> for Var {
         fn sort(&self) -> &Sort {
             match self {
+                Var::Num(_) => &Sort::Num,
                 Var::X => &Sort::Num,
                 Var::Y => &Sort::Other,
             }
@@ -346,7 +328,11 @@ mod tests {
 
     impl fmt::Display for Var {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "{:?}", self)
+            match self {
+                Self::Num(n) => write!(f, "{}", n),
+                Self::X => write!(f, "x"),
+                Self::Y => write!(f, "y"),
+            }
         }
     }
 
@@ -369,12 +355,12 @@ mod tests {
     }
 
     /// 2 + (3 * x)
-    fn example_ast() -> Ast<usize, Var, Op, Sort> {
+    fn example_ast() -> Ast<Var, Op, Sort> {
         Ast::from_op(
             Op::Plus,
             vec![
-                Ast::from_val(2),
-                Ast::from_op(Op::Times, vec![Ast::from_val(3), Ast::from_var(Var::X)]).unwrap(),
+                Var::Num(2).into(),
+                Ast::from_op(Op::Times, vec![Var::Num(3).into(), Var::X.into()]).unwrap(),
             ],
         )
         .unwrap()
@@ -402,7 +388,7 @@ mod tests {
 
     #[test]
     fn ast__valid_operation() {
-        let operation = Ast::from_op(Op::Plus, vec![Ast::from_val(1), Ast::from_var(Var::X)]);
+        let operation = Ast::from_op(Op::Plus, vec![Var::Num(1).into(), Var::X.into()]);
         assert!(operation.is_ok());
     }
 
@@ -410,7 +396,7 @@ mod tests {
     fn invalid_ast_operation__too_many_args() {
         let operation = Ast::from_op(
             Op::Plus,
-            vec![Ast::from_val(1), Ast::from_val(2), Ast::from_var(Var::X)],
+            vec![Var::Num(1).into(), Var::Num(2).into(), Var::X.into()],
         )
         .unwrap_err();
 
@@ -419,8 +405,7 @@ mod tests {
 
     #[test]
     fn invalid_ast_operation__too_few_args() {
-        let operation: InvalidOperation<usize, _, _, _> =
-            Ast::from_op(Op::Plus, vec![Ast::from_var(Var::X)]).unwrap_err();
+        let operation = Ast::from_op(Op::Plus, vec![Var::X.into()]).unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooFewArguments(1));
     }
@@ -428,26 +413,26 @@ mod tests {
     #[test]
     fn invalid_ast_operation__argument_type() {
         let operation =
-            Ast::from_op(Op::Plus, vec![Ast::from_val(1), Ast::from_var(Var::Y)]).unwrap_err();
+            Ast::from_op(Op::Plus, vec![Var::Num(1).into(), Var::Y.into()]).unwrap_err();
 
         assert_eq!(
             operation,
             InvalidOperation::SortMismatches(vec![ArgumentSortMismatch {
                 index: 1,
                 parameter: Sort::Num,
-                argument: Ast::from_var(Var::Y),
+                argument: Var::Y.into(),
             }]),
         );
     }
 
     #[test]
     fn ast__variable_substitution() {
-        let actual = example_ast().substitute(Ast::from_val(4), Var::X);
+        let actual = example_ast().substitute(Var::Num(4).into(), Var::X);
         let expected = Ok(Ast::from_op(
             Op::Plus,
             vec![
-                Ast::from_val(2),
-                Ast::from_op(Op::Times, vec![Ast::from_val(3), Ast::from_val(4)]).unwrap(),
+                Var::Num(2).into(),
+                Ast::from_op(Op::Times, vec![Var::Num(3).into(), Var::Num(4).into()]).unwrap(),
             ],
         )
         .unwrap());
@@ -456,7 +441,7 @@ mod tests {
 
     #[test]
     fn invalid_ast_substitution__variable_sort_mismatch() {
-        let actual = example_ast().substitute(Ast::from_var(Var::Y), Var::X);
+        let actual = example_ast().substitute(Var::Y.into(), Var::X);
         let expected = Err(InvalidSubstitution {
             subject: Sort::Num,
             target: Sort::Other,
@@ -478,7 +463,7 @@ mod tests {
         fn ast__roundtrips_through_serialization_and_deserialization(
             ast in arb_ast(Sort::Num)
         ) {
-            let roundtripped: Ast<usize, Var, Op, Sort> =
+            let roundtripped: Ast<Var, Op, Sort> =
                 serde_json::from_str(&serde_json::to_string(&ast).unwrap()).unwrap();
 
             prop_assert_eq!(roundtripped, ast);
