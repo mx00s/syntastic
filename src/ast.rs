@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, marker::PhantomData};
+use std::{cmp::Ordering, convert::TryFrom, marker::PhantomData};
 
 #[cfg(test)]
 use std::fmt::{self, Write};
@@ -111,7 +111,6 @@ impl<V, O, S> Node<V, O, S> {
                         Ok((*self).clone())
                     }
                 }
-                // Self::Value(_, _) => Ok((*self).clone()),
                 Self::Operation(o, args) => {
                     let mut new_args = Vec::new();
                     for a in args {
@@ -161,18 +160,6 @@ impl<V, O, S> Ast<V, O, S> {
         self.0.sort()
     }
 
-    pub fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<V, O, S>>
-    where
-        V: Clone + Variable<S>,
-        O: Clone + Operator<S>,
-        S: Clone + PartialEq,
-    {
-        Ok(Self(Node::from_op(
-            operator,
-            args.iter().cloned().map(|a| a.0).collect(),
-        )?))
-    }
-
     pub fn substitute(&self, target: Self, subject: V) -> Result<Self, InvalidSubstitution<S>>
     where
         V: Clone + Variable<S> + PartialEq,
@@ -202,11 +189,28 @@ where
     }
 }
 
+impl<V, O, S> TryFrom<(O, Vec<Self>)> for Ast<V, O, S>
+where
+    V: Clone + Variable<S>,
+    O: Clone + Operator<S>,
+    S: Clone + PartialEq,
+{
+    type Error = InvalidOperation<V, O, S>;
+
+    fn try_from((operator, args): (O, Vec<Self>)) -> Result<Self, Self::Error> {
+        Ok(Self(Node::from_op(
+            operator,
+            args.iter().cloned().map(|a| a.0).collect(),
+        )?))
+    }
+}
+
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
+    use std::convert::TryInto;
 
     use insta::{
         assert_debug_snapshot, assert_json_snapshot, assert_ron_snapshot, assert_snapshot,
@@ -252,7 +256,8 @@ mod tests {
             args in arb_args(o.arity()),
             o in Just(o)
         ) -> Ast<Var, Op, Sort> {
-            Ast::from_op(o, args)
+            (o, args)
+                .try_into()
                 .expect("Generated arguments must be compatible with generated operator")
         }
     }
@@ -293,12 +298,6 @@ mod tests {
         Num,
         Other,
     }
-
-    // impl Value<Sort> for usize {
-    //     fn sort(&self) -> &Sort {
-    //         &Sort::Num
-    //     }
-    // }
 
     impl Variable<Sort> for Var {
         fn sort(&self) -> &Sort {
@@ -356,13 +355,14 @@ mod tests {
 
     /// 2 + (3 * x)
     fn example_ast() -> Ast<Var, Op, Sort> {
-        Ast::from_op(
+        (
             Op::Plus,
             vec![
                 Var::Num(2).into(),
-                Ast::from_op(Op::Times, vec![Var::Num(3).into(), Var::X.into()]).unwrap(),
+                (Op::Times, vec![Var::Num(3).into(), Var::X.into()]).try_into().unwrap(),
             ],
         )
+        .try_into()
         .unwrap()
     }
 
@@ -388,16 +388,16 @@ mod tests {
 
     #[test]
     fn ast__valid_operation() {
-        let operation = Ast::from_op(Op::Plus, vec![Var::Num(1).into(), Var::X.into()]);
+        let operation = Ast::try_from((Op::Plus, vec![Var::Num(1).into(), Var::X.into()]));
         assert!(operation.is_ok());
     }
 
     #[test]
     fn invalid_ast_operation__too_many_args() {
-        let operation = Ast::from_op(
+        let operation = Ast::try_from((
             Op::Plus,
             vec![Var::Num(1).into(), Var::Num(2).into(), Var::X.into()],
-        )
+        ))
         .unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooManyArguments(1));
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn invalid_ast_operation__too_few_args() {
-        let operation = Ast::from_op(Op::Plus, vec![Var::X.into()]).unwrap_err();
+        let operation = Ast::try_from((Op::Plus, vec![Var::X.into()])).unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooFewArguments(1));
     }
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn invalid_ast_operation__argument_type() {
         let operation =
-            Ast::from_op(Op::Plus, vec![Var::Num(1).into(), Var::Y.into()]).unwrap_err();
+            Ast::try_from((Op::Plus, vec![Var::Num(1).into(), Var::Y.into()])).unwrap_err();
 
         assert_eq!(
             operation,
@@ -428,13 +428,14 @@ mod tests {
     #[test]
     fn ast__variable_substitution() {
         let actual = example_ast().substitute(Var::Num(4).into(), Var::X);
-        let expected = Ok(Ast::from_op(
+        let expected = Ok((
             Op::Plus,
             vec![
                 Var::Num(2).into(),
-                Ast::from_op(Op::Times, vec![Var::Num(3).into(), Var::Num(4).into()]).unwrap(),
+                (Op::Times, vec![Var::Num(3).into(), Var::Num(4).into()]).try_into().unwrap(),
             ],
         )
+        .try_into()
         .unwrap());
         assert_eq!(actual, expected);
     }

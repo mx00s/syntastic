@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - `ast::Value` trait because in this context AST values can be modeled as variables.
+- `ast::Ast::{from_var, from_op}` replaced with `From` and `TryFrom` traits, respectively.
 - `Display` implementations for AST types removed (and replaced with private `render_sexp` methods).
 
 ## [0.3.0] - 2020-11-28
