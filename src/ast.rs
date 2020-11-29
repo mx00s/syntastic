@@ -115,7 +115,7 @@ impl<T, V, O, S> Node<T, V, O, S> {
             match self {
                 Self::Variable(y) => {
                     if y == &x {
-                        Ok(target.clone())
+                        Ok(target)
                     } else {
                         Ok((*self).clone())
                     }
