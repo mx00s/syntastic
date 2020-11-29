@@ -41,6 +41,12 @@ pub enum InvalidOperation<T, V, O, S> {
     SortMismatches(Vec<ArgumentSortMismatch<T, V, O, S>>),
 }
 
+#[derive(Debug, PartialEq)]
+pub struct InvalidSubstitution<S> {
+    subject: S,
+    target: S,
+}
+
 impl<T, V, O, S> Node<T, V, O, S> {
     fn sort(&self) -> &S
     where
@@ -88,6 +94,40 @@ impl<T, V, O, S> Node<T, V, O, S> {
                     Ok(Self::Operation(operator, args))
                 } else {
                     Err(InvalidOperation::SortMismatches(bad_args))
+                }
+            }
+        }
+    }
+
+    fn substitute(&self, target: Self, x: V) -> Result<Self, InvalidSubstitution<S>>
+    where
+        T: Clone + Value<S>,
+        V: Clone + Variable<S> + PartialEq,
+        O: Clone + Operator<S>,
+        S: Clone + PartialEq,
+    {
+        if target.sort() != x.sort() {
+            Err(InvalidSubstitution {
+                subject: x.sort().clone(),
+                target: target.sort().clone(),
+            })
+        } else {
+            match self {
+                Self::Variable(y) => {
+                    if y == &x {
+                        Ok(target.clone())
+                    } else {
+                        Ok((*self).clone())
+                    }
+                }
+                Self::Value(_, _) => Ok((*self).clone()),
+                Self::Operation(o, args) => {
+                    let mut new_args = Vec::new();
+                    for a in args {
+                        new_args.push(a.substitute(target.clone(), x.clone())?);
+                    }
+
+                    Ok(Self::Operation(o.clone(), new_args))
                 }
             }
         }
@@ -158,6 +198,16 @@ impl<T, V, O, S> Ast<T, V, O, S> {
             operator,
             args.iter().cloned().map(|a| a.0).collect(),
         )?))
+    }
+
+    pub fn substitute(&self, target: Self, subject: V) -> Result<Self, InvalidSubstitution<S>>
+    where
+        T: Clone + Value<S>,
+        V: Clone + Variable<S> + PartialEq,
+        O: Clone + Operator<S>,
+        S: Clone + PartialEq,
+    {
+        Ok(Self(self.0.substitute(target.0, subject)?))
     }
 
     #[cfg(test)]
@@ -390,6 +440,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ast__variable_substitution() {
+        let actual = example_ast().substitute(Ast::from_val(4), Var::X);
+        let expected = Ok(Ast::from_op(
+            Op::Plus,
+            vec![
+                Ast::from_val(2),
+                Ast::from_op(Op::Times, vec![Ast::from_val(3), Ast::from_val(4)]).unwrap(),
+            ],
+        )
+        .unwrap());
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn invalid_ast_substitution__variable_sort_mismatch() {
+        let actual = example_ast().substitute(Ast::from_var(Var::Y), Var::X);
+        let expected = Err(InvalidSubstitution {
+            subject: Sort::Num,
+            target: Sort::Other,
+        });
+        assert_eq!(actual, expected);
+    }
+
     proptest! {
         #[test]
         fn meta__ast_strategy_returns_ast_of_expected_sort(
@@ -410,8 +484,6 @@ mod tests {
             prop_assert_eq!(roundtripped, ast);
         }
     }
-
-    // TODO: substitution (p. 5)
 
     // TODO: abstract binding trees (p. 6-10)
 }
