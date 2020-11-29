@@ -223,7 +223,7 @@ mod tests {
 
     fn arb_ast(sort: Sort, size: usize) -> impl Strategy<Value = Ast<Var, Op, Sort>> {
         if size == 0 {
-            arb_variable(sort.to_owned()).boxed()
+            arb_variable(sort).boxed()
         } else {
             prop_oneof![arb_variable(sort.to_owned()), arb_operation(sort, size),].boxed()
         }
