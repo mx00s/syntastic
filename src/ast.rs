@@ -193,7 +193,7 @@ mod tests {
                 arb_variable(sort.clone())
             },
             arb_variable(sort.clone()),
-            arb_operation(sort.clone()),
+            arb_operation(sort),
         ]
     }
 
