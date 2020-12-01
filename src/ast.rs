@@ -26,6 +26,19 @@ pub trait Operator<S> {
 
     /// Expected sorts of [Ast] operands
     fn arity(&self) -> Vec<S>;
+
+    /// Apply to the expected number and sorts of operands to construct an [Ast]
+    fn apply<V>(
+        self,
+        args: Vec<Ast<V, Self, S>>,
+    ) -> Result<Ast<V, Self, S>, InvalidOperation<V, Self, S>>
+    where
+        V: Clone + Variable<S>,
+        Self: Clone + Operator<S> + Sized,
+        S: Clone + PartialEq,
+    {
+        Ast::try_from((self, args))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -285,12 +298,11 @@ impl<V, O, S> Ast<V, O, S> {
     }
 
     #[cfg(test)]
-    pub fn arb_node<'a>(sort: S, size: usize) -> impl Strategy<Value = Option<Ast<V, O, S>>>
+    pub fn arb_node(sort: S, size: usize) -> impl Strategy<Value = Option<Self>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
         O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
         S: 'static + Clone + fmt::Debug + PartialEq,
-        Ast<V, O, S>: 'a,
     {
         if size == 0 {
             Self::arb_variable(sort).boxed()
@@ -314,7 +326,7 @@ impl<V, O, S> Ast<V, O, S> {
     }
 
     #[cfg(test)]
-    fn arb_operation(sort: S, size: usize) -> impl Strategy<Value = Option<Ast<V, O, S>>>
+    fn arb_operation(sort: S, size: usize) -> impl Strategy<Value = Option<Self>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
         O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
@@ -336,7 +348,7 @@ impl<V, O, S> Ast<V, O, S> {
     }
 
     #[cfg(test)]
-    fn arb_args(arity: Vec<S>, size: usize) -> impl Strategy<Value = Option<Vec<Ast<V, O, S>>>>
+    fn arb_args(arity: Vec<S>, size: usize) -> impl Strategy<Value = Option<Vec<Self>>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
         O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
@@ -405,7 +417,6 @@ where
 mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
-    use std::convert::TryInto;
 
     use insta::{
         assert_debug_snapshot, assert_json_snapshot, assert_ron_snapshot, assert_snapshot,
@@ -424,7 +435,6 @@ mod tests {
         Plus,
         Times,
     }
-
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Arbitrary)]
     enum Sort {
         Num,
@@ -509,16 +519,13 @@ mod tests {
 
     /// 2 + (3 * x)
     fn example_ast() -> Ast<Var, Op, Sort> {
-        (
-            Op::Plus,
-            vec![
+        Op::Plus
+            .apply(vec![
                 Var::Num(2).into(),
-                (Op::Times, vec![Var::Num(3).into(), Var::X.into()])
-                    .try_into()
+                Op::Times
+                    .apply(vec![Var::Num(3).into(), Var::X.into()])
                     .unwrap(),
-            ],
-        )
-            .try_into()
+            ])
             .unwrap()
     }
 
@@ -584,16 +591,13 @@ mod tests {
     #[test]
     fn ast__variable_substitution() {
         let actual = example_ast().substitute(Var::Num(4).into(), Var::X);
-        let expected = Ok((
-            Op::Plus,
-            vec![
+        let expected = Ok(Op::Plus
+            .apply(vec![
                 Var::Num(2).into(),
-                (Op::Times, vec![Var::Num(3).into(), Var::Num(4).into()])
-                    .try_into()
+                Op::Times
+                    .apply(vec![Var::Num(3).into(), Var::Num(4).into()])
                     .unwrap(),
-            ],
-        )
-            .try_into()
+            ])
             .unwrap());
         assert_eq!(actual, expected);
     }
