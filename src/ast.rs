@@ -340,7 +340,9 @@ impl<V, O, S> Ast<V, O, S> {
             }
             .prop_map(move |args| {
                 Some(
-                    Ast::try_from((*(o.clone()?), args?))
+                    o.as_ref()?
+                        .clone()
+                        .apply(args?)
                         .expect("Generated arguments must be compatible with generated operator"),
                 )
             })
@@ -551,32 +553,31 @@ mod tests {
 
     #[test]
     fn ast__valid_operation() {
-        let operation = Ast::try_from((Op::Plus, vec![Var::Num(1).into(), Var::X.into()]));
+        let operation = Op::Plus.apply(vec![Var::Num(1).into(), Var::X.into()]);
         assert!(operation.is_ok());
     }
 
     #[test]
     fn invalid_ast_operation__too_many_args() {
-        let operation = Ast::try_from((
-            Op::Plus,
-            vec![Var::Num(1).into(), Var::Num(2).into(), Var::X.into()],
-        ))
-        .unwrap_err();
+        let operation = Op::Plus
+            .apply(vec![Var::Num(1).into(), Var::Num(2).into(), Var::X.into()])
+            .unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooManyArguments(1));
     }
 
     #[test]
     fn invalid_ast_operation__too_few_args() {
-        let operation = Ast::try_from((Op::Plus, vec![Var::X.into()])).unwrap_err();
+        let operation = Op::Plus.apply(vec![Var::X.into()]).unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooFewArguments(1));
     }
 
     #[test]
     fn invalid_ast_operation__argument_type() {
-        let operation =
-            Ast::try_from((Op::Plus, vec![Var::Num(1).into(), Var::Y.into()])).unwrap_err();
+        let operation = Op::Plus
+            .apply(vec![Var::Num(1).into(), Var::Y.into()])
+            .unwrap_err();
 
         assert_eq!(
             operation,
