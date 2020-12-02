@@ -13,9 +13,8 @@
 //!   reasonable defaults for this repository.
 
 #![deny(missing_docs)]
-
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
-#![allow(clippy::unit_arg)]  // catches false positives due to single-element enum variants
+#![allow(clippy::unit_arg)] // catches false positives due to single-element enum variants
 
 pub mod ast;

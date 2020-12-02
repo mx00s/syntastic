@@ -119,7 +119,7 @@ where
     fn try_from((operator, args): (O, &[Self])) -> Result<Self, Self::Error> {
         Ok(Self(Node::from_op(
             operator,
-            &args.iter().cloned().map(|a| a.0).collect::<Vec<_>>()
+            &args.iter().cloned().map(|a| a.0).collect::<Vec<_>>(),
         )?))
     }
 }
@@ -604,10 +604,7 @@ mod tests {
     fn ast__variable_substitution() {
         let actual = example_ast().substitute(4.into(), &Var::X);
         let expected = Ok(Op::Plus
-            .apply(&[
-                2.into(),
-                Op::Times.apply(&[3.into(), 4.into()]).unwrap(),
-            ])
+            .apply(&[2.into(), Op::Times.apply(&[3.into(), 4.into()]).unwrap()])
             .unwrap());
         assert_eq!(actual, expected);
     }
