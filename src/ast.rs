@@ -95,6 +95,31 @@ where
 
 impl<S> Error for InvalidSubstitution<S> where S: fmt::Debug {}
 
+impl<V, O, S> From<V> for Ast<V, O, S>
+where
+    V: Variable<S>,
+{
+    fn from(v: V) -> Self {
+        Self(Node::Variable(v, PhantomData))
+    }
+}
+
+impl<V, O, S> TryFrom<(O, Vec<Self>)> for Ast<V, O, S>
+where
+    V: Clone + Variable<S>,
+    O: Clone + Operator<S>,
+    S: Clone + PartialEq,
+{
+    type Error = InvalidOperation<V, O, S>;
+
+    fn try_from((operator, args): (O, Vec<Self>)) -> Result<Self, Self::Error> {
+        Ok(Self(Node::from_op(
+            operator,
+            args.iter().cloned().map(|a| a.0).collect(),
+        )?))
+    }
+}
+
 impl<V, O, S> fmt::Display for ArgumentSortMismatch<V, O, S>
 where
     S: fmt::Debug,
@@ -139,11 +164,6 @@ where
             self.subject, self.target
         )
     }
-}
-
-#[cfg(test)]
-pub trait ArbitraryOfSort<S> {
-    fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>>;
 }
 
 impl<V, O, S> Node<V, O, S> {
@@ -226,8 +246,52 @@ impl<V, O, S> Node<V, O, S> {
             }
         }
     }
+}
 
-    #[cfg(test)]
+impl<V, O, S> Ast<V, O, S> {
+    /// Sort of syntactic element
+    pub fn sort(&self) -> &S
+    where
+        V: Variable<S>,
+        O: Operator<S>,
+    {
+        self.0.sort()
+    }
+
+    /// Replace each `subject` variable with the `target` [Ast].
+    pub fn substitute(&self, target: Self, subject: V) -> Result<Self, InvalidSubstitution<S>>
+    where
+        V: Clone + Variable<S> + PartialEq,
+        O: Clone + Operator<S>,
+        S: Clone + PartialEq,
+    {
+        Ok(Self(self.0.substitute(target.0, subject)?))
+    }
+}
+
+#[cfg(test)]
+pub trait ArbitraryOfSort<S> {
+    fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>>;
+}
+
+#[cfg(test)]
+impl<V, O, S> ArbitraryOfSort<S> for Ast<V, O, S>
+where
+    V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+    O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
+    S: 'static + Clone + fmt::Debug + PartialEq,
+{
+    fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>> {
+        const SIZE: usize = 50;
+
+        Self::arb_node(sort.clone(), SIZE)
+            .prop_map(|n| n.map(Box::new))
+            .boxed()
+    }
+}
+
+#[cfg(test)]
+impl<V, O, S> Node<V, O, S> {
     fn render_sexp(&self) -> String
     where
         V: fmt::Display + Variable<S>,
@@ -255,27 +319,8 @@ impl<V, O, S> Node<V, O, S> {
     }
 }
 
+#[cfg(test)]
 impl<V, O, S> Ast<V, O, S> {
-    /// Sort of syntactic element
-    pub fn sort(&self) -> &S
-    where
-        V: Variable<S>,
-        O: Operator<S>,
-    {
-        self.0.sort()
-    }
-
-    /// Replace each `subject` variable with the `target` [Ast].
-    pub fn substitute(&self, target: Self, subject: V) -> Result<Self, InvalidSubstitution<S>>
-    where
-        V: Clone + Variable<S> + PartialEq,
-        O: Clone + Operator<S>,
-        S: Clone + PartialEq,
-    {
-        Ok(Self(self.0.substitute(target.0, subject)?))
-    }
-
-    #[cfg(test)]
     fn render_sexp(&self) -> String
     where
         V: fmt::Display + Variable<S>,
@@ -285,7 +330,6 @@ impl<V, O, S> Ast<V, O, S> {
         self.0.render_sexp()
     }
 
-    #[cfg(test)]
     pub fn arb_ast(size: usize) -> impl Strategy<Value = Self>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
@@ -297,7 +341,6 @@ impl<V, O, S> Ast<V, O, S> {
             .prop_filter_map("Skip when strategy returns None", |n| n)
     }
 
-    #[cfg(test)]
     pub fn arb_node(sort: S, size: usize) -> impl Strategy<Value = Option<Self>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
@@ -315,7 +358,6 @@ impl<V, O, S> Ast<V, O, S> {
         }
     }
 
-    #[cfg(test)]
     fn arb_variable(sort: S) -> impl Strategy<Value = Option<Self>>
     where
         V: Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
@@ -325,7 +367,6 @@ impl<V, O, S> Ast<V, O, S> {
         V::of_sort(&sort).prop_map(|v| Some(Self::from(*(v?))))
     }
 
-    #[cfg(test)]
     fn arb_operation(sort: S, size: usize) -> impl Strategy<Value = Option<Self>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
@@ -349,7 +390,6 @@ impl<V, O, S> Ast<V, O, S> {
         })
     }
 
-    #[cfg(test)]
     fn arb_args(arity: Vec<S>, size: usize) -> impl Strategy<Value = Option<Vec<Self>>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
@@ -370,47 +410,6 @@ impl<V, O, S> Ast<V, O, S> {
                 .boxed(),
             _ => Just(None).boxed(),
         }
-    }
-}
-
-#[cfg(test)]
-impl<V, O, S> ArbitraryOfSort<S> for Ast<V, O, S>
-where
-    V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
-    O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
-    S: 'static + Clone + fmt::Debug + PartialEq,
-{
-    fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>> {
-        const SIZE: usize = 50;
-
-        Self::arb_node(sort.clone(), SIZE)
-            .prop_map(|n| n.map(Box::new))
-            .boxed()
-    }
-}
-
-impl<V, O, S> From<V> for Ast<V, O, S>
-where
-    V: Variable<S>,
-{
-    fn from(v: V) -> Self {
-        Self(Node::Variable(v, PhantomData))
-    }
-}
-
-impl<V, O, S> TryFrom<(O, Vec<Self>)> for Ast<V, O, S>
-where
-    V: Clone + Variable<S>,
-    O: Clone + Operator<S>,
-    S: Clone + PartialEq,
-{
-    type Error = InvalidOperation<V, O, S>;
-
-    fn try_from((operator, args): (O, Vec<Self>)) -> Result<Self, Self::Error> {
-        Ok(Self(Node::from_op(
-            operator,
-            args.iter().cloned().map(|a| a.0).collect(),
-        )?))
     }
 }
 
