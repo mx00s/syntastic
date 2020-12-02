@@ -1,5 +1,5 @@
 ---
-source: src/ast.rs
+source: src/ast/tests.rs
 expression: example_ast().render_sexp()
 ---
 ([+ : ℕ -> ℕ -> ℕ] ([2 : ℕ]) ([× : ℕ -> ℕ -> ℕ] ([3 : ℕ]) [x : ℕ]))

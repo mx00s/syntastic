@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Many owned-value parameters converted to references.
 - Many `Vec` parameters converted to slices.
 - Enabled pedantic clippy linting.
+- Reorganize `ast` modules.
 
 ## [0.5.0] - 2020-11-29
 ### Added
