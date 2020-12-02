@@ -2,4 +2,4 @@
 lint = "clippy --all-features --all-targets"
 test-all = "test --all-features --all-targets"
 
-t = "test-all"
+w = "watch -c --features with-proptest -x test -x clippy -x doc"
