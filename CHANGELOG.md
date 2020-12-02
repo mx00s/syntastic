@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - `Operator::apply` method to try to construct an AST (convenient alternative to `try_into`/`try_from`).
+- AST `proptest` strategies exposed using optional `with-proptest` feature.
 
 ### Changed
 - Numeric values are now operators with empty arity instead of variables.
+- Many owned-value parameters converted to references.
+- Many `Vec` parameters converted to slices.
+- Enabled pedantic clippy linting.
 
 ## [0.5.0] - 2020-11-29
 ### Added

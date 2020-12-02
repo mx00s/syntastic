@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, convert::TryFrom, error::Error, fmt, marker::PhantomData};
 
-#[cfg(test)]
+#[cfg(feature = "with-proptest")]
 use proptest::prelude::*;
 #[cfg(test)]
 use std::fmt::Write;
@@ -28,9 +28,13 @@ pub trait Operator<S> {
     fn arity(&self) -> Vec<S>;
 
     /// Apply to the expected number and sorts of operands to construct an [Ast]
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`InvalidOperation`] if `args` has the wrong number or sorts of arguments (see [`Operator::arity`]).
     fn apply<V>(
         self,
-        args: Vec<Ast<V, Self, S>>,
+        args: &[Ast<V, Self, S>],
     ) -> Result<Ast<V, Self, S>, InvalidOperation<V, Self, S>>
     where
         V: Clone + Variable<S>,
@@ -104,7 +108,7 @@ where
     }
 }
 
-impl<V, O, S> TryFrom<(O, Vec<Self>)> for Ast<V, O, S>
+impl<V, O, S> TryFrom<(O, &[Self])> for Ast<V, O, S>
 where
     V: Clone + Variable<S>,
     O: Clone + Operator<S>,
@@ -112,10 +116,10 @@ where
 {
     type Error = InvalidOperation<V, O, S>;
 
-    fn try_from((operator, args): (O, Vec<Self>)) -> Result<Self, Self::Error> {
+    fn try_from((operator, args): (O, &[Self])) -> Result<Self, Self::Error> {
         Ok(Self(Node::from_op(
             operator,
-            args.iter().cloned().map(|a| a.0).collect(),
+            &args.iter().cloned().map(|a| a.0).collect::<Vec<_>>()
         )?))
     }
 }
@@ -178,7 +182,7 @@ impl<V, O, S> Node<V, O, S> {
         }
     }
 
-    fn from_op(operator: O, args: Vec<Self>) -> Result<Self, InvalidOperation<V, O, S>>
+    fn from_op(operator: O, args: &[Self]) -> Result<Self, InvalidOperation<V, O, S>>
     where
         V: Clone + Variable<S>,
         O: Clone + Operator<S>,
@@ -207,7 +211,7 @@ impl<V, O, S> Node<V, O, S> {
                     })
                     .collect();
                 if bad_args.is_empty() {
-                    Ok(Self::Operation(operator, args))
+                    Ok(Self::Operation(operator, args.to_vec()))
                 } else {
                     Err(InvalidOperation::SortMismatches(bad_args))
                 }
@@ -215,21 +219,16 @@ impl<V, O, S> Node<V, O, S> {
         }
     }
 
-    fn substitute(&self, target: Self, x: V) -> Result<Self, InvalidSubstitution<S>>
+    fn substitute(&self, target: Self, x: &V) -> Result<Self, InvalidSubstitution<S>>
     where
         V: Clone + Variable<S> + PartialEq,
         O: Clone + Operator<S>,
         S: Clone + PartialEq,
     {
-        if target.sort() != x.sort() {
-            Err(InvalidSubstitution {
-                subject: x.sort().clone(),
-                target: target.sort().clone(),
-            })
-        } else {
+        if target.sort() == x.sort() {
             match self {
                 Self::Variable(y, _phantom) => {
-                    if y == &x {
+                    if y == x {
                         Ok(target)
                     } else {
                         Ok((*self).clone())
@@ -238,12 +237,17 @@ impl<V, O, S> Node<V, O, S> {
                 Self::Operation(o, args) => {
                     let mut new_args = Vec::new();
                     for a in args {
-                        new_args.push(a.substitute(target.clone(), x.clone())?);
+                        new_args.push(a.substitute(target.clone(), x)?);
                     }
 
                     Ok(Self::Operation(o.clone(), new_args))
                 }
             }
+        } else {
+            Err(InvalidSubstitution {
+                subject: x.sort().clone(),
+                target: target.sort().clone(),
+            })
         }
     }
 }
@@ -259,7 +263,11 @@ impl<V, O, S> Ast<V, O, S> {
     }
 
     /// Replace each `subject` variable with the `target` [Ast].
-    pub fn substitute(&self, target: Self, subject: V) -> Result<Self, InvalidSubstitution<S>>
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`InvalidSubstitution`] error if the sort of the `target` differs from that of the `subject`.
+    pub fn substitute(&self, target: Self, subject: &V) -> Result<Self, InvalidSubstitution<S>>
     where
         V: Clone + Variable<S> + PartialEq,
         O: Clone + Operator<S>,
@@ -269,12 +277,14 @@ impl<V, O, S> Ast<V, O, S> {
     }
 }
 
-#[cfg(test)]
+/// Provides a `proptest` strategy to try to generate a random value of the specified sort, `S`.
+#[cfg(feature = "with-proptest")]
 pub trait ArbitraryOfSort<S> {
+    /// Attempt to generate a random value of the specified sort
     fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>>;
 }
 
-#[cfg(test)]
+#[cfg(feature = "with-proptest")]
 impl<V, O, S> ArbitraryOfSort<S> for Ast<V, O, S>
 where
     V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
@@ -284,7 +294,7 @@ where
     fn of_sort(sort: &S) -> BoxedStrategy<Option<Box<Self>>> {
         const SIZE: usize = 50;
 
-        Self::arb_node(sort.clone(), SIZE)
+        Self::arb_node(sort, SIZE)
             .prop_map(|n| n.map(Box::new))
             .boxed()
     }
@@ -329,7 +339,11 @@ impl<V, O, S> Ast<V, O, S> {
     {
         self.0.render_sexp()
     }
+}
 
+#[cfg(feature = "with-proptest")]
+impl<V, O, S> Ast<V, O, S> {
+    /// TODO
     pub fn arb_ast(size: usize) -> impl Strategy<Value = Self>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
@@ -337,11 +351,12 @@ impl<V, O, S> Ast<V, O, S> {
         S: 'static + Clone + fmt::Debug + PartialEq + Arbitrary,
     {
         any::<S>()
-            .prop_flat_map(move |sort| Self::arb_node(sort, size))
+            .prop_flat_map(move |sort| Self::arb_node(&sort, size))
             .prop_filter_map("Skip when strategy returns None", |n| n)
     }
 
-    pub fn arb_node(sort: S, size: usize) -> impl Strategy<Value = Option<Self>>
+    /// TODO
+    pub fn arb_node(sort: &S, size: usize) -> impl Strategy<Value = Option<Self>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
         O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
@@ -350,47 +365,42 @@ impl<V, O, S> Ast<V, O, S> {
         if size == 0 {
             Self::arb_variable(sort).boxed()
         } else {
-            prop_oneof![
-                Self::arb_variable(sort.clone()),
-                Self::arb_operation(sort, size)
-            ]
-            .boxed()
+            prop_oneof![Self::arb_variable(sort), Self::arb_operation(sort, size)].boxed()
         }
     }
 
-    fn arb_variable(sort: S) -> impl Strategy<Value = Option<Self>>
+    fn arb_variable(sort: &S) -> impl Strategy<Value = Option<Self>>
     where
-        V: Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
-        O: Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
-        S: Clone + fmt::Debug + PartialEq,
+        V: fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
+        O: fmt::Debug,
+        S: fmt::Debug,
     {
         V::of_sort(&sort).prop_map(|v| Some(Self::from(*(v?))))
     }
 
-    fn arb_operation(sort: S, size: usize) -> impl Strategy<Value = Option<Self>>
+    fn arb_operation(sort: &S, size: usize) -> impl Strategy<Value = Option<Self>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
         O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
         S: 'static + Clone + fmt::Debug + PartialEq,
     {
         O::of_sort(&sort).prop_flat_map(move |o| {
-            if let Some(o) = o.clone() {
-                Self::arb_args((o).arity(), size.saturating_sub(1)).boxed()
-            } else {
-                Just(None).boxed()
-            }
-            .prop_map(move |args| {
-                Some(
-                    o.as_ref()?
-                        .clone()
-                        .apply(args?)
-                        .expect("Generated arguments must be compatible with generated operator"),
+            o.clone()
+                .map_or_else(
+                    || Just(None).boxed(),
+                    |o| Self::arb_args(&(o).arity(), size.saturating_sub(1)).boxed(),
                 )
-            })
+                .prop_map(move |args| {
+                    Some(
+                        o.as_ref()?.clone().apply(&args?).expect(
+                            "Generated arguments must be compatible with generated operator",
+                        ),
+                    )
+                })
         })
     }
 
-    fn arb_args(arity: Vec<S>, size: usize) -> impl Strategy<Value = Option<Vec<Self>>>
+    fn arb_args(arity: &[S], size: usize) -> impl Strategy<Value = Option<Vec<Self>>>
     where
         V: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Variable<S>,
         O: 'static + Clone + fmt::Debug + ArbitraryOfSort<S> + Operator<S>,
@@ -399,12 +409,12 @@ impl<V, O, S> Ast<V, O, S> {
         let size = size.saturating_sub(1);
 
         match arity.len() {
-            1 => Self::arb_node(arity[0].clone(), size)
+            1 => Self::arb_node(&arity[0], size)
                 .prop_map(|a0| Some(vec![a0?]))
                 .boxed(),
             2 => (
-                Self::arb_node(arity[0].clone(), size),
-                Self::arb_node(arity[1].clone(), size),
+                Self::arb_node(&arity[0], size),
+                Self::arb_node(&arity[1], size),
             )
                 .prop_map(|(a0, a1)| Some(vec![a0?, a1?]))
                 .boxed(),
@@ -454,17 +464,14 @@ mod tests {
     impl Operator<Sort> for Op {
         fn sort(&self) -> &Sort {
             match self {
-                Op::Num(_) => &Sort::Num,
-                Op::Plus => &Sort::Num,
-                Op::Times => &Sort::Num,
+                Op::Num(_) | Op::Plus | Op::Times => &Sort::Num,
             }
         }
 
         fn arity(&self) -> Vec<Sort> {
             match self {
                 Op::Num(_) => vec![],
-                Op::Plus => vec![Sort::Num, Sort::Num],
-                Op::Times => vec![Sort::Num, Sort::Num],
+                Op::Plus | Op::Times => vec![Sort::Num, Sort::Num],
             }
         }
     }
@@ -472,11 +479,12 @@ mod tests {
     impl From<usize> for Ast<Var, Op, Sort> {
         fn from(n: usize) -> Self {
             Op::Num(n)
-                .apply(vec![])
+                .apply(&[])
                 .expect("Num operator expects no arguments")
         }
     }
 
+    #[cfg(feature = "with-proptest")]
     impl ArbitraryOfSort<Sort> for Var {
         fn of_sort(sort: &Sort) -> BoxedStrategy<Option<Box<Self>>> {
             match sort {
@@ -486,6 +494,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "with-proptest")]
     impl ArbitraryOfSort<Sort> for Op {
         fn of_sort(sort: &Sort) -> BoxedStrategy<Option<Box<Self>>> {
             match sort {
@@ -509,6 +518,7 @@ mod tests {
             match self {
                 Self::Num(n) => write!(f, "{}", n),
                 Op::Plus => write!(f, "+"),
+                #[allow(clippy::non_ascii_literal)]
                 Op::Times => write!(f, "×"),
             }
         }
@@ -517,6 +527,7 @@ mod tests {
     impl fmt::Display for Sort {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
+                #[allow(clippy::non_ascii_literal)]
                 Sort::Num => write!(f, "ℕ"),
                 Sort::Other => write!(f, "other"),
             }
@@ -526,9 +537,9 @@ mod tests {
     /// 2 + (3 * x)
     fn example_ast() -> Ast<Var, Op, Sort> {
         Op::Plus
-            .apply(vec![
+            .apply(&[
                 2.into(),
-                Op::Times.apply(vec![3.into(), Var::X.into()]).unwrap(),
+                Op::Times.apply(&[3.into(), Var::X.into()]).unwrap(),
             ])
             .unwrap()
     }
@@ -555,14 +566,14 @@ mod tests {
 
     #[test]
     fn ast__valid_operation() {
-        let operation = Op::Plus.apply(vec![1.into(), Var::X.into()]);
+        let operation = Op::Plus.apply(&[1.into(), Var::X.into()]);
         assert!(operation.is_ok());
     }
 
     #[test]
     fn invalid_ast_operation__too_many_args() {
         let operation = Op::Plus
-            .apply(vec![1.into(), 2.into(), Var::X.into()])
+            .apply(&[1.into(), 2.into(), Var::X.into()])
             .unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooManyArguments(1));
@@ -570,14 +581,14 @@ mod tests {
 
     #[test]
     fn invalid_ast_operation__too_few_args() {
-        let operation = Op::Plus.apply(vec![Var::X.into()]).unwrap_err();
+        let operation = Op::Plus.apply(&[Var::X.into()]).unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooFewArguments(1));
     }
 
     #[test]
     fn invalid_ast_operation__argument_type() {
-        let operation = Op::Plus.apply(vec![1.into(), Var::Y.into()]).unwrap_err();
+        let operation = Op::Plus.apply(&[1.into(), Var::Y.into()]).unwrap_err();
 
         assert_eq!(
             operation,
@@ -591,11 +602,11 @@ mod tests {
 
     #[test]
     fn ast__variable_substitution() {
-        let actual = example_ast().substitute(4.into(), Var::X);
+        let actual = example_ast().substitute(4.into(), &Var::X);
         let expected = Ok(Op::Plus
-            .apply(vec![
+            .apply(&[
                 2.into(),
-                Op::Times.apply(vec![3.into(), 4.into()]).unwrap(),
+                Op::Times.apply(&[3.into(), 4.into()]).unwrap(),
             ])
             .unwrap());
         assert_eq!(actual, expected);
@@ -603,7 +614,7 @@ mod tests {
 
     #[test]
     fn invalid_ast_substitution__variable_sort_mismatch() {
-        let actual = example_ast().substitute(Var::Y.into(), Var::X);
+        let actual = example_ast().substitute(Var::Y.into(), &Var::X);
         let expected = Err(InvalidSubstitution {
             subject: Sort::Num,
             target: Sort::Other,
@@ -611,6 +622,7 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    #[cfg(feature = "with-proptest")]
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(1000))]
         #[test]
@@ -621,6 +633,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "with-proptest")]
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(1000))]
         #[test]

@@ -17,7 +17,7 @@ jobs:
           override: true
       - uses: actions-rs/cargo@v1
         with:
-          command: test
+          command: test-all
 
   rustfmt:
     name: Rustfmt
@@ -54,8 +54,7 @@ jobs:
       - name: Clippy Check
         uses: actions-rs/cargo@v1
         with:
-          command: clippy
-          args: --all-targets --all-features
+          command: lint
 
   coverage:
     name: Code coverage
