@@ -426,13 +426,13 @@ mod tests {
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     enum Var {
-        Num(usize),
         X,
         Y,
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Arbitrary)]
     enum Op {
+        Num(usize),
         Plus,
         Times,
     }
@@ -445,7 +445,6 @@ mod tests {
     impl Variable<Sort> for Var {
         fn sort(&self) -> &Sort {
             match self {
-                Var::Num(_) => &Sort::Num,
                 Var::X => &Sort::Num,
                 Var::Y => &Sort::Other,
             }
@@ -455,6 +454,7 @@ mod tests {
     impl Operator<Sort> for Op {
         fn sort(&self) -> &Sort {
             match self {
+                Op::Num(_) => &Sort::Num,
                 Op::Plus => &Sort::Num,
                 Op::Times => &Sort::Num,
             }
@@ -462,20 +462,25 @@ mod tests {
 
         fn arity(&self) -> Vec<Sort> {
             match self {
+                Op::Num(_) => vec![],
                 Op::Plus => vec![Sort::Num, Sort::Num],
                 Op::Times => vec![Sort::Num, Sort::Num],
             }
         }
     }
 
+    impl From<usize> for Ast<Var, Op, Sort> {
+        fn from(n: usize) -> Self {
+            Op::Num(n)
+                .apply(vec![])
+                .expect("Num operator expects no arguments")
+        }
+    }
+
     impl ArbitraryOfSort<Sort> for Var {
         fn of_sort(sort: &Sort) -> BoxedStrategy<Option<Box<Self>>> {
             match sort {
-                Sort::Num => prop_oneof![
-                    any::<usize>().prop_map(|n| Some(Box::new(Var::Num(n)))),
-                    Just(Some(Box::new(Var::X))),
-                ]
-                .boxed(),
+                Sort::Num => Just(Some(Box::new(Var::X))).boxed(),
                 Sort::Other => Just(Some(Box::new(Var::Y))).boxed(),
             }
         }
@@ -493,7 +498,6 @@ mod tests {
     impl fmt::Display for Var {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
-                Self::Num(n) => write!(f, "{}", n),
                 Self::X => write!(f, "x"),
                 Self::Y => write!(f, "y"),
             }
@@ -503,6 +507,7 @@ mod tests {
     impl fmt::Display for Op {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
+                Self::Num(n) => write!(f, "{}", n),
                 Op::Plus => write!(f, "+"),
                 Op::Times => write!(f, "×"),
             }
@@ -522,10 +527,8 @@ mod tests {
     fn example_ast() -> Ast<Var, Op, Sort> {
         Op::Plus
             .apply(vec![
-                Var::Num(2).into(),
-                Op::Times
-                    .apply(vec![Var::Num(3).into(), Var::X.into()])
-                    .unwrap(),
+                2.into(),
+                Op::Times.apply(vec![3.into(), Var::X.into()]).unwrap(),
             ])
             .unwrap()
     }
@@ -552,14 +555,14 @@ mod tests {
 
     #[test]
     fn ast__valid_operation() {
-        let operation = Op::Plus.apply(vec![Var::Num(1).into(), Var::X.into()]);
+        let operation = Op::Plus.apply(vec![1.into(), Var::X.into()]);
         assert!(operation.is_ok());
     }
 
     #[test]
     fn invalid_ast_operation__too_many_args() {
         let operation = Op::Plus
-            .apply(vec![Var::Num(1).into(), Var::Num(2).into(), Var::X.into()])
+            .apply(vec![1.into(), 2.into(), Var::X.into()])
             .unwrap_err();
 
         assert_eq!(operation, InvalidOperation::TooManyArguments(1));
@@ -574,9 +577,7 @@ mod tests {
 
     #[test]
     fn invalid_ast_operation__argument_type() {
-        let operation = Op::Plus
-            .apply(vec![Var::Num(1).into(), Var::Y.into()])
-            .unwrap_err();
+        let operation = Op::Plus.apply(vec![1.into(), Var::Y.into()]).unwrap_err();
 
         assert_eq!(
             operation,
@@ -590,13 +591,11 @@ mod tests {
 
     #[test]
     fn ast__variable_substitution() {
-        let actual = example_ast().substitute(Var::Num(4).into(), Var::X);
+        let actual = example_ast().substitute(4.into(), Var::X);
         let expected = Ok(Op::Plus
             .apply(vec![
-                Var::Num(2).into(),
-                Op::Times
-                    .apply(vec![Var::Num(3).into(), Var::Num(4).into()])
-                    .unwrap(),
+                2.into(),
+                Op::Times.apply(vec![3.into(), 4.into()]).unwrap(),
             ])
             .unwrap());
         assert_eq!(actual, expected);

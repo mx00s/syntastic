@@ -7,10 +7,11 @@ expression: example_ast()
     "Plus",
     [
       {
-        "Variable": [
+        "Operation": [
           {
             "Num": 2
-          }
+          },
+          []
         ]
       },
       {
@@ -18,10 +19,11 @@ expression: example_ast()
           "Times",
           [
             {
-              "Variable": [
+              "Operation": [
                 {
                   "Num": 3
-                }
+                },
+                []
               ]
             },
             {

@@ -3,9 +3,9 @@ source: src/ast.rs
 expression: example_ast()
 ---
 Ast(Operation(Plus, [
-  Variable(Num(2)),
+  Operation(Num(2), []),
   Operation(Times, [
-    Variable(Num(3)),
+    Operation(Num(3), []),
     Variable(X),
   ]),
 ]))

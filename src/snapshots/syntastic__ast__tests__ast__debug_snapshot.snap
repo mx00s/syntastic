@@ -6,20 +6,20 @@ Ast(
     Operation(
         Plus,
         [
-            Variable(
+            Operation(
                 Num(
                     2,
                 ),
-                PhantomData,
+                [],
             ),
             Operation(
                 Times,
                 [
-                    Variable(
+                    Operation(
                         Num(
                             3,
                         ),
-                        PhantomData,
+                        [],
                     ),
                     Variable(
                         X,
