@@ -17,6 +17,9 @@
 #![deny(clippy::pedantic)]
 #![allow(clippy::unit_arg)] // catches false positives due to single-element enum variants
 
+pub mod errors;
+
 pub mod ast;
 
 // TODO: abstract binding trees
+pub mod abt;

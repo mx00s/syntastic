@@ -1,7 +1,9 @@
-use super::{ArgumentSortMismatch, InvalidOperation, InvalidSubstitution};
+use crate::errors::{ArgumentSortMismatch, InvalidOperation, InvalidSubstitution};
 
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, convert::TryFrom, marker::PhantomData};
+
+// TODO: Determine whether `Ast`s and `Operator`s need another generic for the active parameters described on p. 6, 10, and ch. 34.
 
 /// Leaf node of an abstract syntax tree indexed by some sort, `S`
 pub trait Variable<S> {
@@ -9,12 +11,15 @@ pub trait Variable<S> {
     fn sort(&self) -> &S;
 }
 
+/// Invalid operation for [Ast]
+pub type InvalidOperationError<V, O, S> = InvalidOperation<S, Ast<V, O, S>>;
+
 /// Non-leaf node of an abstract syntax tree indexed by some sort, `S`
 pub trait Operator<S> {
     /// Sort of syntactic element
     fn sort(&self) -> &S;
 
-    /// Expected sorts of [Ast] operands
+    /// Expected sorts of the operands
     fn arity(&self) -> Vec<S>;
 
     /// Apply to the expected number and sorts of operands to construct an [Ast]
@@ -25,10 +30,10 @@ pub trait Operator<S> {
     fn apply<V>(
         self,
         args: &[Ast<V, Self, S>],
-    ) -> Result<Ast<V, Self, S>, InvalidOperation<V, Self, S>>
+    ) -> Result<Ast<V, Self, S>, InvalidOperationError<V, Self, S>>
     where
         V: Clone + Variable<S>,
-        Self: Clone + Operator<S> + Sized,
+        Self: Clone + Sized,
         S: Clone + PartialEq,
     {
         Ast::try_from((self, args))
@@ -60,7 +65,7 @@ where
     O: Clone + Operator<S>,
     S: Clone + PartialEq,
 {
-    type Error = InvalidOperation<V, O, S>;
+    type Error = InvalidOperation<S, Self>;
 
     fn try_from((operator, args): (O, &[Self])) -> Result<Self, Self::Error> {
         Ok(Self(Node::from_op(
@@ -82,7 +87,7 @@ impl<V, O, S> Node<V, O, S> {
         }
     }
 
-    fn from_op(operator: O, args: &[Self]) -> Result<Self, InvalidOperation<V, O, S>>
+    fn from_op(operator: O, args: &[Self]) -> Result<Self, InvalidOperation<S, Ast<V, O, S>>>
     where
         V: Clone + Variable<S>,
         O: Clone + Operator<S>,

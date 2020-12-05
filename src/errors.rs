@@ -1,60 +1,58 @@
-use super::Ast;
+//! TODO
 
 use std::{error::Error, fmt};
 
-/// Error matching [Ast] with sort expected by [Operator](`super::Operator`)
+/// Error matching tree with sort expected by operator
 #[derive(Debug, PartialEq)]
-pub struct ArgumentSortMismatch<V, O, S> {
+pub struct ArgumentSortMismatch<S, A> {
     /// Operand position
     pub index: usize,
     /// Expected sort
     pub parameter: S,
-    /// Actual [Ast] operand
-    pub argument: Ast<V, O, S>,
+    /// Actual operand
+    pub argument: A,
 }
 
-/// Error constructing operation from [Operator](`super::Operator`) and [Ast] arguments
+/// Error constructing operation from operator and arguments
 #[derive(Debug, PartialEq)]
-pub enum InvalidOperation<V, O, S> {
+pub enum InvalidOperation<S, A> {
     /// Operator expects more arguments
     TooFewArguments(usize),
     /// Operator expects fewer arguments
     TooManyArguments(usize),
     /// Operator expects arguments of different sorts
-    SortMismatches(Vec<ArgumentSortMismatch<V, O, S>>),
+    SortMismatches(Vec<ArgumentSortMismatch<S, A>>),
 }
 
-/// Error substituting [Ast] in place of [Variable](`super::Variable`) due to misaligned sorts, `S`
+/// Error substituting tree in place of variable due to misaligned sorts, `S`
 #[derive(Debug, PartialEq)]
 pub struct InvalidSubstitution<S> {
     /// Sort expected by the variable
     pub subject: S,
-    /// Sort of the [Ast] to substitute for the variable
+    /// Sort of the tree to substitute for the variable
     pub target: S,
 }
 
-impl<V, O, S> Error for ArgumentSortMismatch<V, O, S>
+impl<S, A> Error for ArgumentSortMismatch<S, A>
 where
-    V: fmt::Debug,
-    O: fmt::Debug,
     S: fmt::Debug,
+    A: fmt::Debug,
 {
 }
 
-impl<V, O, S> Error for InvalidOperation<V, O, S>
+impl<S, A> Error for InvalidOperation<S, A>
 where
-    V: fmt::Debug,
-    O: fmt::Debug,
     S: fmt::Debug,
+    A: fmt::Debug,
 {
 }
 
 impl<S> Error for InvalidSubstitution<S> where S: fmt::Debug {}
 
-impl<V, O, S> fmt::Display for ArgumentSortMismatch<V, O, S>
+impl<S, A> fmt::Display for ArgumentSortMismatch<S, A>
 where
     S: fmt::Debug,
-    Ast<V, O, S>: fmt::Debug,
+    A: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -65,10 +63,10 @@ where
     }
 }
 
-impl<V, O, S> fmt::Display for InvalidOperation<V, O, S>
+impl<S, A> fmt::Display for InvalidOperation<S, A>
 where
     S: fmt::Debug,
-    Ast<V, O, S>: fmt::Debug,
+    A: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

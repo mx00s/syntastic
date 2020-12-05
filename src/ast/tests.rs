@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use super::*;
+use crate::errors::{ArgumentSortMismatch, InvalidOperation, InvalidSubstitution};
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

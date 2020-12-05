@@ -11,9 +11,6 @@ mod tests;
 mod types;
 pub use self::types::*;
 
-mod errors;
-pub use self::errors::*;
-
 #[cfg(feature = "with-proptest")]
 mod with_proptest;
 #[cfg(feature = "with-proptest")]
