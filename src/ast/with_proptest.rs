@@ -91,6 +91,7 @@ impl<V, O, S> Ast<V, O, S> {
         let size = size.saturating_sub(1);
 
         match arity.len() {
+            0 => Just(Some(Vec::new())).boxed(),
             1 => Self::arb_node(&arity[0], size)
                 .prop_map(|a0| Some(vec![a0?]))
                 .boxed(),
@@ -100,7 +101,7 @@ impl<V, O, S> Ast<V, O, S> {
             )
                 .prop_map(|(a0, a1)| Some(vec![a0?, a1?]))
                 .boxed(),
-            _ => Just(None).boxed(),
+            n => unimplemented!("arity length {}", n),
         }
     }
 }

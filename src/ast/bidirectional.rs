@@ -1,10 +1,10 @@
 // For now the following `render_sexp` methods aren't public, but there is a snapshot test for them.
 //
-// Eventually I'd like to generalize this by implement a generalization which supports generic,
+// Eventually I'd like to generalize this by implementing a generalization which supports generic,
 // configurable bidirectional parsers. This is non-trivial because consumers control the rendering of
 // the variables and operators they define. In other words, a concrete generic syntax like these sexps
 // isn't be compatible with all varieties of `Ast`s. Syntactic could provide a trait for bidirectional
-// parsers and consumers that implement it would be responsible for ensuring there are no ambiguous
+// parsers, and consumers that implement it would be responsible for ensuring there are no ambiguous
 // strings. Syntactic could also implement generic roundtrip testing features to help consumers verify
 // their end of the contract.
 

@@ -9,6 +9,7 @@
 // identifier property: reference to its binding
 
 use crate::errors::{ArgumentSortMismatch, InvalidOperation};
+use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     convert::{TryFrom, TryInto},
@@ -25,7 +26,7 @@ pub trait Variable<S> {
 }
 
 /// TODO
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Valence<S> {
     /// TODO
     pub variables: Vec<S>,
@@ -60,7 +61,7 @@ pub trait Operator<S> {
 }
 
 /// TODO
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Abstractor<V, O, S> {
     /// TODO
     pub variables: Vec<V>,
@@ -68,14 +69,15 @@ pub struct Abstractor<V, O, S> {
     pub tree: Abt<V, O, S>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) enum Node<V, O, S> {
-    Variable(V, PhantomData<S>),
+    Variable(V, #[serde(skip)] PhantomData<S>),
     Operation(O, Vec<Abstractor<V, O, S>>),
+    Let(Vec<(V, Node<V, O, S>)>, Box<Node<V, O, S>>),
 }
 
 /// TODO
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Abt<V, O, S>(pub(crate) Node<V, O, S>);
 
 impl<V, O, S> From<V> for Abt<V, O, S> {
@@ -121,6 +123,20 @@ impl<V, O, S> Abstractor<V, O, S> {
 }
 
 impl<V, O, S> Abt<V, O, S> {
+    /// Bind variables to abstract binding trees in the scope of the `tree`.
+    pub fn bind(bindings: Vec<(V, Self)>, tree: Self) -> Self {
+        // TODO: continue allowing empty `bindings`?
+
+        // TODO: check for multiple `bindings` for the same variable
+
+        // TODO: ensure freshness condition on binders is preserved
+
+        Self(Node::Let(
+            bindings.into_iter().map(|(v, t)| (v, t.0)).collect(),
+            Box::new(tree.0),
+        ))
+    }
+
     fn sort(&self) -> &S
     where
         V: Variable<S>,
@@ -139,6 +155,7 @@ impl<V, O, S> Node<V, O, S> {
         match self {
             Self::Variable(x, _) => x.sort(),
             Self::Operation(operator, _) => operator.sort(),
+            Self::Let(_, _) => todo!(),
         }
     }
 
@@ -193,13 +210,111 @@ impl<V, O, S> Node<V, O, S> {
     }
 }
 
-#[cfg(tesT)]
+#[cfg(test)]
 mod tests {
-    #[test]
-    fn example_abt() -> Abt {
-        // let x be a_1 in a_2
-        // let(a_1; x.a_2)   // the x is bound within a_2, but not a_1
+    #![allow(non_snake_case)]
 
-        // let x be x * x in x + x
+    use super::*;
+
+    use insta::{assert_debug_snapshot, assert_json_snapshot, assert_ron_snapshot};
+    use proptest_derive::Arbitrary;
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct Var<S>(String, S);
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Arbitrary)]
+    enum Op {
+        Num(usize),
+        Plus,
+        Times,
+    }
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Arbitrary)]
+    enum Sort {
+        Num,
+        Other,
+    }
+
+    impl<S> Var<S> {
+        fn new(name: &str, sort: S) -> Self {
+            Self(name.to_owned(), sort)
+        }
+    }
+
+    impl Operator<Sort> for Op {
+        fn sort(&self) -> &Sort {
+            match self {
+                Op::Num(_) | Op::Plus | Op::Times => &Sort::Num,
+            }
+        }
+
+        fn arity(&self) -> Vec<Valence<Sort>> {
+            match self {
+                Op::Num(_) => vec![],
+                Op::Plus | Op::Times => vec![
+                    Valence {
+                        variables: vec![Sort::Num],
+                        sort: Sort::Num,
+                    },
+                    Valence {
+                        variables: vec![Sort::Num],
+                        sort: Sort::Num,
+                    },
+                ],
+            }
+        }
+    }
+
+    impl<S> Variable<S> for Var<S> {
+        fn sort(&self) -> &S {
+            &self.1
+        }
+    }
+
+    // let x be a_1 in a_2
+    // let(a_1; x.a_2)   // the x is bound within a_2, but not a_1
+
+    // let x be x * x in x + x
+
+    fn example_abt() -> Abt<Var<Sort>, Op, Sort> {
+        // let x be 2 in
+        //   let y be 3 in
+        //     x + y
+
+        let x = Var::new("x", Sort::Num);
+        let y = Var::new("y", Sort::Num);
+
+        Abt::bind(
+            vec![(x.clone(), Op::Num(2).apply(&[]).unwrap())],
+            Abt::bind(
+                vec![(y.clone(), Op::Num(3).apply(&[]).unwrap())],
+                Op::Plus
+                    .apply(&[
+                        Abstractor {
+                            variables: vec![x.clone()],
+                            tree: Abt::from(x),
+                        },
+                        Abstractor {
+                            variables: vec![y.clone()],
+                            tree: Abt::from(y),
+                        },
+                    ])
+                    .unwrap(),
+            ),
+        )
+    }
+
+    #[test]
+    fn abt__debug_snapshot() {
+        assert_debug_snapshot!(example_abt());
+    }
+
+    #[test]
+    fn abt__json_snapshot() {
+        assert_json_snapshot!(example_abt());
+    }
+
+    #[test]
+    fn abt__ron_snapshot() {
+        assert_ron_snapshot!(example_abt());
     }
 }

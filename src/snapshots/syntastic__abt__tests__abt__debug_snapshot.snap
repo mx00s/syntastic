@@ -1,0 +1,77 @@
+---
+source: src/abt.rs
+expression: example_abt()
+---
+Abt(
+    Let(
+        [
+            (
+                Var(
+                    "x",
+                    Num,
+                ),
+                Operation(
+                    Num(
+                        2,
+                    ),
+                    [],
+                ),
+            ),
+        ],
+        Let(
+            [
+                (
+                    Var(
+                        "y",
+                        Num,
+                    ),
+                    Operation(
+                        Num(
+                            3,
+                        ),
+                        [],
+                    ),
+                ),
+            ],
+            Operation(
+                Plus,
+                [
+                    Abstractor {
+                        variables: [
+                            Var(
+                                "x",
+                                Num,
+                            ),
+                        ],
+                        tree: Abt(
+                            Variable(
+                                Var(
+                                    "x",
+                                    Num,
+                                ),
+                                PhantomData,
+                            ),
+                        ),
+                    },
+                    Abstractor {
+                        variables: [
+                            Var(
+                                "y",
+                                Num,
+                            ),
+                        ],
+                        tree: Abt(
+                            Variable(
+                                Var(
+                                    "y",
+                                    Num,
+                                ),
+                                PhantomData,
+                            ),
+                        ),
+                    },
+                ],
+            ),
+        ),
+    ),
+)

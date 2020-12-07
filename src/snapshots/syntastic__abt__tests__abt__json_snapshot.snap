@@ -1,0 +1,83 @@
+---
+source: src/abt.rs
+expression: example_abt()
+---
+{
+  "Let": [
+    [
+      [
+        [
+          "x",
+          "Num"
+        ],
+        {
+          "Operation": [
+            {
+              "Num": 2
+            },
+            []
+          ]
+        }
+      ]
+    ],
+    {
+      "Let": [
+        [
+          [
+            [
+              "y",
+              "Num"
+            ],
+            {
+              "Operation": [
+                {
+                  "Num": 3
+                },
+                []
+              ]
+            }
+          ]
+        ],
+        {
+          "Operation": [
+            "Plus",
+            [
+              {
+                "variables": [
+                  [
+                    "x",
+                    "Num"
+                  ]
+                ],
+                "tree": {
+                  "Variable": [
+                    [
+                      "x",
+                      "Num"
+                    ]
+                  ]
+                }
+              },
+              {
+                "variables": [
+                  [
+                    "y",
+                    "Num"
+                  ]
+                ],
+                "tree": {
+                  "Variable": [
+                    [
+                      "y",
+                      "Num"
+                    ]
+                  ]
+                }
+              }
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}
